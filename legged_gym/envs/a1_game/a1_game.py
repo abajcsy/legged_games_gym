@@ -71,7 +71,9 @@ class A1Game(BaseTask):
             obs_buf, priviledged_obs_buf, rew_buf, reset_buf, extras
         """
 
-        hl_control_decimation = 3 # high-level control is 3x slower than the low-level controller
+        # in the step function we hold the high-level command constant
+        # high-level control is "hl_control_decimation" times slower than the low-level controller
+        hl_control_decimation = 3 # running @ 12.5 Hz
 
         # high-level control loop
         for _ in range(hl_control_decimation):
@@ -90,6 +92,7 @@ class A1Game(BaseTask):
                     self.gym.fetch_results(self.sim, True)
                 self.gym.refresh_dof_state_tensor(self.sim)
 
+            # this computes a new observation, stored in obs_buf, and new rewards
             self.post_physics_step()
 
             # return clipped obs, clipped states (None), rewards, dones and infos
@@ -99,7 +102,7 @@ class A1Game(BaseTask):
                 self.privileged_obs_buf = torch.clip(self.privileged_obs_buf, -clip_obs, clip_obs)
 
             # given the observation at the end of the low-level loop, find the next low-level action to take
-            self.ll_policy(self.obs_buf)
+            actions = self.ll_policy(self.obs_buf)
 
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
 

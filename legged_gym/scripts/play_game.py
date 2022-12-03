@@ -38,6 +38,15 @@ from legged_gym.utils import get_args, export_policy_as_jit, task_registry, Logg
 import numpy as np
 import torch
 
+def goal_reach_lin_yaw_cmd(curr_pos, goal_pos, ranges):
+    dxy = goal_pos - curr_pos
+    yaw = torch.atan2(dxy[:, 1], dxy[:, 0])
+
+    command_lin_vel_x = torch.clamp(dxy[0,0], min=ranges.lin_vel_x[0], max=ranges.lin_vel_x[1])
+    command_lin_vel_y = torch.clamp(dxy[0,1], min=ranges.lin_vel_y[0], max=ranges.lin_vel_y[1])
+    command_yaw = torch.clamp(yaw, min=ranges.ang_vel_yaw[0], max=ranges.ang_vel_yaw[1])
+
+    return command_lin_vel_x, command_lin_vel_y, command_yaw
 
 def play_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
@@ -57,13 +66,8 @@ def play_game(args):
     # get the first observation
     obs = env.get_observations()
 
-    # set the high-level command
-    hl_command = torch.ones_like(env.commands) # of shape [num_envs, 4]
-    hl_command[:, 0] *= 1.0 * env.commands_scale[0] # lin vel x
-    hl_command[:, 1] *= 0.0 * env.commands_scale[1] # lin vel y
-    hl_command[:, 2] *= 0.0 * env.commands_scale[2] # ang vel yaw
-    hl_command[:, 3] = 0 # heading
-    env.commands = hl_command
+    # set the high-level goal position
+    goal_pos = torch.tensor([[30,  10]], device=env.device)
 
     logger = Logger(env.dt)
     robot_index = 0  # which robot is used for logging
@@ -78,8 +82,20 @@ def play_game(args):
     # simulation loop
     for i in range(10 * int(env.max_episode_length)):
 
-        # # get the high-level command and set it as part of the env
-        # env.commands = hl_command
+        # get the high-level command and set it as part of the env
+        curr_pos = env.root_states[:, :2]
+
+        command_lin_vel_x, command_lin_vel_y, command_yaw = goal_reach_lin_yaw_cmd(curr_pos, goal_pos,
+                                                                                   env_cfg.commands.ranges)
+        print("dist to goal pos:", torch.norm(curr_pos - goal_pos))
+
+        # set the high-level command
+        hl_command = torch.ones_like(env.commands)  # of shape [num_envs, 4]
+        hl_command[:, 0] = command_lin_vel_x  # * env.commands_scale[0] # lin vel x
+        hl_command[:, 1] = command_lin_vel_y  # * env.commands_scale[1] # lin vel y
+        hl_command[:, 2] = command_yaw  # * env.commands_scale[2] # ang vel yaw
+        hl_command[:, 3] = 0  # heading
+        env.commands = hl_command
 
         # get the low-level actions as a function of obs
         actions = env.ll_policy(obs.detach())
