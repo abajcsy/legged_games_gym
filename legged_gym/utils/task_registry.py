@@ -87,6 +87,7 @@ class TaskRegistry():
             raise ValueError(f"Task with name: {name} was not registered")
         if env_cfg is None:
             # load config files
+            print("loading config files...")
             env_cfg, _ = self.get_cfgs(name)
         # override cfg from args (if specified)
         env_cfg, _ = update_cfg_from_args(env_cfg, None, args)
@@ -94,11 +95,17 @@ class TaskRegistry():
         # parse sim params (convert to dict first)
         sim_params = {"sim": class_to_dict(env_cfg.sim)}
         sim_params = parse_sim_params(args, sim_params)
+        print("env_cfg: ", env_cfg)
+        print("sim_params: ", sim_params)
+        print("args.physics_engine: ", args.physics_engine)
+        print("args.sim_device: ", args.sim_device)
+        print("args.headless: ", args.headless)
         env = task_class(   cfg=env_cfg,
                             sim_params=sim_params,
                             physics_engine=args.physics_engine,
                             sim_device=args.sim_device,
                             headless=args.headless)
+        print("CREATED THE ENVIRONMENT IN TASK REGISTRY")
         return env, env_cfg
 
     def make_alg_runner(self, env, name=None, args=None, train_cfg=None, log_root="default") -> Tuple[OnPolicyRunner, LeggedRobotCfgPPO]:

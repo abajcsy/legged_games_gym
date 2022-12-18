@@ -28,17 +28,19 @@
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
 
-from legged_gym.envs.a1.a1_config import A1RoughCfg, A1RoughCfgPPO
 from .base.legged_robot import LeggedRobot
 from .anymal_c.anymal import Anymal
-from .a1_game.a1_game import A1Game
 from .anymal_c.mixed_terrains.anymal_c_rough_config import AnymalCRoughCfg, AnymalCRoughCfgPPO
 from .anymal_c.flat.anymal_c_flat_config import AnymalCFlatCfg, AnymalCFlatCfgPPO
 from .anymal_b.anymal_b_config import AnymalBRoughCfg, AnymalBRoughCfgPPO
 from .cassie.cassie import Cassie
 from .cassie.cassie_config import CassieRoughCfg, CassieRoughCfgPPO
 from .a1.a1_config import A1RoughCfg, A1RoughCfgPPO
-# from .a1_game.a1_game_flat_config import A1GameFlatCfg, A1GameFlatCfgPPO
+
+from .a1_game.high_level_game import HighLevelGame
+from .a1_game.low_level_game import LowLevelGame
+from .a1_game.low_level_game_config import LowLevelGameCfg, LowLevelGamePPO
+from .a1_game.high_level_game_flat_config import HighLevelGameFlatCfg, HighLevelGameFlatCfgPPO
 
 from legged_gym.utils.task_registry import  task_registry
 
@@ -47,4 +49,5 @@ task_registry.register( "anymal_c_flat", Anymal, AnymalCFlatCfg(), AnymalCFlatCf
 task_registry.register( "anymal_b", Anymal, AnymalBRoughCfg(), AnymalBRoughCfgPPO() )
 task_registry.register( "a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO() )
 task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() )
-task_registry.register( "a1_game", A1Game, A1RoughCfg(), A1RoughCfgPPO() )
+task_registry.register( "low_level_game", LowLevelGame, LowLevelGameCfg(), LowLevelGamePPO() )
+task_registry.register( "high_level_game", HighLevelGame, HighLevelGameFlatCfg(), HighLevelGameFlatCfgPPO() )

@@ -38,6 +38,7 @@ import torch
 class BaseTask():
 
     def __init__(self, cfg, sim_params, physics_engine, sim_device, headless):
+        print("IN BASE TASK... ACQUIRING GYM")
         self.gym = gymapi.acquire_gym()
 
         self.sim_params = sim_params
@@ -81,7 +82,9 @@ class BaseTask():
         self.extras = {}
 
         # create envs, sim and viewer
+        print("IN BASE TASK... ABOUT TO CREATE SIM")
         self.create_sim()
+        print("IN BASE TASK... ABOUT TO PREPARE SIM")
         self.gym.prepare_sim(self.sim)
 
         # todo: read from config

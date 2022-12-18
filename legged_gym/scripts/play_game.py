@@ -38,6 +38,8 @@ from legged_gym.utils import get_args, export_policy_as_jit, task_registry, Logg
 import numpy as np
 import torch
 
+from isaacgym import gymapi
+
 def goal_reach_lin_yaw_cmd(curr_pos, goal_pos, ranges):
     dxy = goal_pos - curr_pos
     yaw = torch.atan2(dxy[:, 1], dxy[:, 0])
@@ -51,94 +53,92 @@ def goal_reach_lin_yaw_cmd(curr_pos, goal_pos, ranges):
 def play_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    max_num_envs = 1 # 50
+    max_num_envs = 5
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
-    env_cfg.terrain.num_rows = 5
-    env_cfg.terrain.num_cols = 5
+    env_cfg.terrain.mesh_type = 'plane'
+    env_cfg.terrain.num_rows = 4    # number of terrain rows (levels)
+    env_cfg.terrain.num_cols = 4    # number of terrain cols (types)
     env_cfg.terrain.curriculum = False
     env_cfg.noise.add_noise = False
     env_cfg.domain_rand.randomize_friction = False
     env_cfg.domain_rand.push_robots = False
 
-    # prepare environment
-    env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    # if flag is true, then uses a pre-trained RL policy to avoid predator
+    #            false, then simulates the high-level commands to a fixed goal
+    run_rl_policy = True
 
-    # get the first observation
-    obs = env.get_observations()
+    if run_rl_policy:
+        # prepare environment
+        env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
 
-    # set the high-level goal position
-    goal_pos = torch.tensor([[30,  10]], device=env.device)
+        obs = env.get_observations()
+        # load policy
+        train_cfg.runner.resume = True
+        train_cfg.runner.load_run = 'hl_vanilla_ll_a1_vanilla'
+        ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
+        policy = ppo_runner.get_inference_policy(device=env.device)
 
-    logger = Logger(env.dt)
-    robot_index = 0  # which robot is used for logging
-    joint_index = 1  # which joint is used for logging
-    stop_state_log = 100  # number of steps before plotting states
-    stop_rew_log = env.max_episode_length + 1  # number of steps before print average episode rewards
-    camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
-    camera_vel = np.array([1., 1., 0.])
-    camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
-    img_idx = 0
+        # export policy as a jit module (used to run it from C++)
+        if EXPORT_POLICY:
+            path = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported', 'policies')
+            export_policy_as_jit(ppo_runner.alg.actor_critic, path)
+            print('Exported policy as jit script to: ', path)
 
-    # simulation loop
-    for i in range(10 * int(env.max_episode_length)):
+        camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
+        camera_vel = np.array([1., 1., 0.])
+        camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
+        img_idx = 0
 
-        # get the high-level command and set it as part of the env
-        curr_pos = env.root_states[:, :2]
+        for i in range(10 * int(env.max_episode_length)):
+            actions = policy(obs.detach())
+            obs, _, rews, dones, infos = env.step(actions.detach())
+            if RECORD_FRAMES:
+                if i % 2:
+                    filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported',
+                                            'frames', f"{img_idx}.png")
+                    env.gym.write_viewer_image_to_file(env.viewer, filename)
+                    img_idx += 1
+            if MOVE_CAMERA:
+                camera_position += camera_vel * env.dt
+                env.set_camera(camera_position, camera_position + camera_direction)
+    else:
 
-        command_lin_vel_x, command_lin_vel_y, command_yaw = goal_reach_lin_yaw_cmd(curr_pos, goal_pos,
-                                                                                   env_cfg.commands.ranges)
-        print("dist to goal pos:", torch.norm(curr_pos - goal_pos))
+        # prepare environment
+        print("     Preparing high-level environment...")
+        hl_env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+        print("     Finished initializing high level and low level environment")
 
-        # set the high-level command
-        hl_command = torch.ones_like(env.commands)  # of shape [num_envs, 4]
-        hl_command[:, 0] = command_lin_vel_x  # * env.commands_scale[0] # lin vel x
-        hl_command[:, 1] = command_lin_vel_y  # * env.commands_scale[1] # lin vel y
-        hl_command[:, 2] = command_yaw  # * env.commands_scale[2] # ang vel yaw
-        hl_command[:, 3] = 0  # heading
-        env.commands = hl_command
+        # get the first observation
+        obs = hl_env.compute_observations() # this is zero at first!
 
-        # get the low-level actions as a function of obs
-        actions = env.ll_policy(obs.detach())
+        # set the high-level goal position
+        goal_xy_pos = torch.tensor([[32, 8]], device=hl_env.device)
 
-        # forward simulate the low-level actions
-        obs, _, rews, dones, infos = env.step(actions.detach())
+        # simulation loop
+        for i in range(10 * int(hl_env.max_episode_length)):
 
-        if RECORD_FRAMES:
-            if i % 2:
-                filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported',
-                                        'frames', f"{img_idx}.png")
-                env.gym.write_viewer_image_to_file(env.viewer, filename)
-                img_idx += 1
-        if MOVE_CAMERA:
-            camera_position += camera_vel * env.dt
-            env.set_camera(camera_position, camera_position + camera_direction)
+            # get the high-level command and set it as part of the env
+            prey_xy_pos = hl_env.ll_env.root_states[hl_env.ll_env.prey_indices, :2]
 
-        if i < stop_state_log:
-            logger.log_states(
-                {
-                    'dof_pos_target': actions[robot_index, joint_index].item() * env.cfg.control.action_scale,
-                    'dof_pos': env.dof_pos[robot_index, joint_index].item(),
-                    'dof_vel': env.dof_vel[robot_index, joint_index].item(),
-                    'dof_torque': env.torques[robot_index, joint_index].item(),
-                    'command_x': env.commands[robot_index, 0].item(),
-                    'command_y': env.commands[robot_index, 1].item(),
-                    'command_yaw': env.commands[robot_index, 2].item(),
-                    'base_vel_x': env.base_lin_vel[robot_index, 0].item(),
-                    'base_vel_y': env.base_lin_vel[robot_index, 1].item(),
-                    'base_vel_z': env.base_lin_vel[robot_index, 2].item(),
-                    'base_vel_yaw': env.base_ang_vel[robot_index, 2].item(),
-                    'contact_forces_z': env.contact_forces[robot_index, env.feet_indices, 2].cpu().numpy()
-                }
-            )
-        elif i == stop_state_log:
-            logger.plot_states()
-        if 0 < i < stop_rew_log:
-            if infos["episode"]:
-                num_episodes = torch.sum(env.reset_buf).item()
-                if num_episodes > 0:
-                    logger.log_rewards(infos["episode"], num_episodes)
-        elif i == stop_rew_log:
-            logger.print_rewards()
+            print("Agent positions:")
+            print("     prey (robot): ", prey_xy_pos)
+            print("     predator (red dot): ", hl_env.predator_pos[:2])
+
+            command_lin_vel_x, command_lin_vel_y, command_yaw = goal_reach_lin_yaw_cmd(prey_xy_pos, goal_xy_pos,
+                                                                                       env_cfg.commands.ranges)
+            print("PREY     -- dist to goal pos (env 1):", torch.norm(prey_xy_pos[0, :] - goal_xy_pos[:]))
+            print("PREDATOR -- dist to prey (env 1):", torch.norm(prey_xy_pos[0, :] - hl_env.predator_pos[0, :2]))
+            # print("dist to goal pos (env 2):", torch.norm(curr_pos[1, :] - goal_pos[:]))
+
+            # set the high-level command
+            hl_command = torch.zeros(hl_env.ll_env.num_envs, hl_env.num_actions, device=hl_env.device, requires_grad=False)  # of shape [num_envs, 4]
+            hl_command[:, 0] = command_lin_vel_x  # * env.commands_scale[0] # lin vel x
+            hl_command[:, 1] = command_lin_vel_y  # * env.commands_scale[1] # lin vel y
+            hl_command[:, 2] = command_yaw  # * env.commands_scale[2] # ang vel yaw
+            hl_command[:, 3] = 0
+
+            # forward simulate the low-level actions, updates observation buffer too
+            hl_obs, _, hl_rews, hl_dones, hl_infos = hl_env.step(hl_command)
 
 
 if __name__ == '__main__':
