@@ -149,7 +149,7 @@ class HighLevelGame():
         actions = self.ll_policy(ll_obs.detach())
 
         # forward simulate the low-level actions
-        # # TODO: this also resets the low-level!
+        # TODO: this also resets the low-level!
         ll_obs, _, ll_rews, ll_dones, ll_infos = self.ll_env.step(actions.detach())
 
         # simulate the predator action too
@@ -178,15 +178,19 @@ class HighLevelGame():
             env_dist_ids = env_dist_dones.nonzero(as_tuple=False).flatten()
             all_env_ids = torch.cat((all_env_ids, env_dist_ids), dim=-1)
 
+        # get the unique indicies of environments to be reset, and make corresponding reset_buf
         env_ids = torch.unique(all_env_ids)
+        all_dones = torch.zeros_like(ll_dones, device=self.device, requires_grad=False)
+        all_dones[env_ids] = True
+
+        print("     ll_dones: ", ll_dones)
+        print("     hl_env_ids: ", hl_env_ids)
+        print("     all_env_ids: ", all_env_ids)
+        print("     env_ids: ", env_ids)
 
         self.reset_idx(env_ids)
 
-        # print("     hl_env_ids: ", hl_env_ids)
-        # print("     all_env_ids: ", all_env_ids)
-        # print("     env_ids: ", env_ids)
-
-        self.reset_buf = ll_dones   # TODO: this isn't right!!
+        self.reset_buf = all_dones
 
         # compute the high-level observation: relative predator-prey state
         self.compute_observations()
@@ -228,11 +232,9 @@ class HighLevelGame():
         if len(env_ids) == 0:
             return
 
+        # resets the predator and prey states in the low-level simulator environment
         self.ll_env._reset_root_states(env_ids)
 
-        # reset predator and prey states
-        # self._reset_predator_pos(env_ids)
-        # self._reset_root_states(env_ids)
 
     def reset(self):
         """ Reset all robots"""

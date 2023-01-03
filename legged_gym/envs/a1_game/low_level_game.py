@@ -402,7 +402,6 @@ class LowLevelGame(BaseTask):
         Args:
             env_ids (List[int]): Environemnt ids
         """
-        # print("in _reset_root_states; env_idxs: ", env_ids)\
         # Setup prey info -- base position
         if self.custom_origins:
             self.root_states[self.prey_indices[env_ids]] = self.base_init_state
@@ -415,7 +414,9 @@ class LowLevelGame(BaseTask):
         self.root_states[self.prey_indices[env_ids], 7:13] = torch_rand_float(-0.5, 0.5, (len(env_ids), 6), device=self.device) # [7:10]: lin vel, [10:13]: ang vel
 
         # Reset predator info -- base position
-        self.root_states[self.predator_indices[env_ids], :3] = self.init_predator_pos[env_ids, :]
+        init_prey_pos = self.root_states[self.prey_indices[env_ids], :3].detach().clone() # of size [num_env_ids x 3]
+        self.root_states[self.predator_indices[env_ids], :3] = init_prey_pos - (torch.randn_like(init_prey_pos) - 0.2)
+        self.root_states[self.predator_indices[env_ids], :3] = 0.3
 
         # Deploy root state updates -- prey
         prey_env_ids_int32 = self.prey_indices[env_ids].to(dtype=torch.int32)
