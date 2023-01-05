@@ -50,6 +50,9 @@ class HighLevelGame():
         sim_device_type, self.sim_device_id = gymutil.parse_device_str(self.sim_device)
         self.headless = headless
 
+        # setup the capture distance between predator-prey
+        self.capture_dist = self.cfg.env.capture_dist
+
         # env device is GPU only if sim is on GPU and use_gpu_pipeline=True, otherwise returned tensors are copied to CPU by physX.
         if sim_device_type == 'cuda' and sim_params.use_gpu_pipeline:
             self.device = self.sim_device
@@ -142,58 +145,72 @@ class HighLevelGame():
             obs_buf, priviledged_obs_buf, rew_buf, reset_buf, extras
         """
 
-        self.ll_env.commands = command
+        # in the step function we hold the high-level command constant
+        # high-level control is "hl_control_decimation" times slower than the low-level controller
+        # hl_control_decimation = 3  # running @ 12.5 Hz
+        hl_control_decimation = 1  # running @ 50 Hz
 
-        # get the low-level actions as a function of obs
-        ll_obs = self.ll_env.get_observations()
-        actions = self.ll_policy(ll_obs.detach())
+        # high-level control loop
+        for _ in range(hl_control_decimation):
 
-        # forward simulate the low-level actions
-        # TODO: this also resets the low-level!
-        ll_obs, _, ll_rews, ll_dones, ll_infos = self.ll_env.step(actions.detach())
+            self.ll_env.commands = command
 
-        # simulate the predator action too
-        self.step_predator()
+            # get the low-level actions as a function of obs
+            ll_obs = self.ll_env.get_observations()
+            actions = self.ll_policy(ll_obs.detach())
 
-        # update the agent states after the forward simulation step
-        self._update_agent_states()
+            # forward simulate the low-level actions
+            ll_obs, _, ll_rews, ll_dones, ll_infos = self.ll_env.step(actions.detach())
 
-        # compute the high-level reward as a function of the low-level reward
-        self.compute_reward(ll_rews)
+            # simulate the predator action too
+            self.step_predator()
 
-        # reset predator-prey if they are within the capture distance or if the low-level policy detected failure
-        capture_dist = 0.4
-        pred_prey_dist = torch.norm(self.prey_states[:, :2] - self.predator_pos[:, :2], dim=1)
-        hl_dones = pred_prey_dist < capture_dist
+            # update the agent states after the forward simulation step
+            self._update_agent_states()
 
-        hl_env_ids = hl_dones.nonzero(as_tuple=False).flatten()
-        ll_env_ids = ll_dones.nonzero(as_tuple=False).flatten()
-        all_env_ids = torch.cat((hl_env_ids, ll_env_ids), dim=-1)
+            # compute the high-level reward as a function of the low-level reward
+            self.compute_reward(ll_rews) # TODO: when hl_ctrl_decimation > 1, this should be outside the for-loop
 
-        if self.cfg.env.env_radius is not None:
-            # Check if the predator and prey have left the restricted environment zone. If yes, reset them
-            prey_env_dones = torch.norm(self.prey_states[:, :2], dim=1) > self.cfg.env.env_radius
-            predator_env_dones = torch.norm(self.predator_pos[:, :2], dim=1) > self.cfg.env.env_radius
-            env_dist_dones = torch.logical_or(prey_env_dones, predator_env_dones)
-            env_dist_ids = env_dist_dones.nonzero(as_tuple=False).flatten()
-            all_env_ids = torch.cat((all_env_ids, env_dist_ids), dim=-1)
+            # reset predator-prey if they are within the capture distance or if the low-level policy detected failure
+            pred_prey_dist = torch.norm(self.prey_states[:, :2] - self.predator_pos[:, :2], dim=1)
+            hl_dones = pred_prey_dist < self.capture_dist
 
-        # get the unique indicies of environments to be reset, and make corresponding reset_buf
-        env_ids = torch.unique(all_env_ids)
-        all_dones = torch.zeros_like(ll_dones, device=self.device, requires_grad=False)
-        all_dones[env_ids] = True
+            hl_env_ids = hl_dones.nonzero(as_tuple=False).flatten()
+            ll_env_ids = ll_dones.nonzero(as_tuple=False).flatten()
 
-        print("     ll_dones: ", ll_dones)
-        print("     hl_env_ids: ", hl_env_ids)
-        print("     all_env_ids: ", all_env_ids)
-        print("     env_ids: ", env_ids)
+            # print("all dist: ", pred_prey_dist)
+            # print("capture dist: ", self.capture_dist)
+            # print("dist of hl_dones: ", pred_prey_dist[hl_dones])
+            # print("prey: ", self.prey_states[hl_env_ids, :2])
+            # print("predator: ", self.predator_pos[hl_env_ids, :2])
 
-        self.reset_idx(env_ids)
+            all_env_ids = torch.cat((hl_env_ids, ll_env_ids), dim=-1)
+            # all_env_ids = hl_env_ids
 
-        self.reset_buf = all_dones
+            if self.cfg.env.env_radius is not None:
+                # Check if the predator and prey have left the restricted environment zone. If yes, reset them
+                prey_env_dones = torch.norm(self.prey_states[:, :2], dim=1) > self.cfg.env.env_radius
+                predator_env_dones = torch.norm(self.predator_pos[:, :2], dim=1) > self.cfg.env.env_radius
+                env_dist_dones = torch.logical_or(prey_env_dones, predator_env_dones)
+                env_dist_ids = env_dist_dones.nonzero(as_tuple=False).flatten()
+                all_env_ids = torch.cat((all_env_ids, env_dist_ids), dim=-1)
+                # TODO: THIS ISNT ACCOUNT FOR IN RESET AND DONES PROPERLY
 
-        # compute the high-level observation: relative predator-prey state
-        self.compute_observations()
+            # get the unique indicies of environments to be reset, and make corresponding reset_buf
+            env_ids = torch.unique(all_env_ids)
+            all_dones = torch.zeros_like(ll_dones, device=self.device, requires_grad=False)
+            all_dones[env_ids] = True
+
+            # print("     ll_env_ids: ", ll_env_ids)
+            # print("     hl_env_ids: ", hl_env_ids)
+            # print("     all_env_ids: ", all_env_ids)
+            # print("     env_ids: ", env_ids)
+
+            self.reset_idx(hl_env_ids)
+            self.reset_buf = all_dones
+
+            # compute the high-level observation: relative predator-prey state
+            self.compute_observations()
 
         return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
 
@@ -218,6 +235,7 @@ class HighLevelGame():
 
         # update the simulator state for the predator!
         self.ll_env.root_states[self.ll_env.predator_indices, :3] = self.predator_pos
+        self.ll_env.root_states[self.ll_env.predator_indices, :3] = self.predator_pos
         self.ll_env.gym.set_actor_root_state_tensor(self.ll_env.sim, gymtorch.unwrap_tensor(self.ll_env.root_states))
 
     def reset_idx(self, env_ids):
@@ -235,6 +253,8 @@ class HighLevelGame():
         # resets the predator and prey states in the low-level simulator environment
         self.ll_env._reset_root_states(env_ids)
 
+        # update the state variables
+        self._update_agent_states()
 
     def reset(self):
         """ Reset all robots"""

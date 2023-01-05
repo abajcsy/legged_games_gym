@@ -33,6 +33,7 @@ from time import time
 from warnings import WarningMessage
 import numpy as np
 import os
+import random
 
 from isaacgym.torch_utils import *
 from isaacgym import gymtorch, gymapi, gymutil
@@ -415,8 +416,19 @@ class LowLevelGame(BaseTask):
 
         # Reset predator info -- base position
         init_prey_pos = self.root_states[self.prey_indices[env_ids], :3].detach().clone() # of size [num_env_ids x 3]
-        self.root_states[self.predator_indices[env_ids], :3] = init_prey_pos - (torch.randn_like(init_prey_pos) - 0.2)
-        self.root_states[self.predator_indices[env_ids], :3] = 0.3
+        rand_offset = torch.zeros_like(init_prey_pos).uniform_(1.0, 10.0)
+        rand_sign = torch.rand(rand_offset.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
+        rand_sign[rand_sign < 0.5] = -1
+        rand_sign[rand_sign >= 0.5] = 1
+        rand_sign = rand_sign.unsqueeze(1)
+        offset = rand_sign * rand_offset
+        self.root_states[self.predator_indices[env_ids], :3] = init_prey_pos - offset
+        self.root_states[self.predator_indices[env_ids], 2] = 0.3
+
+        # print("in ll_game: reset root states: ")
+        # # print("     offset: ", offset)
+        # print("     prey state: ", init_prey_pos)
+        # print("     predator state: ", self.root_states[self.predator_indices[env_ids], :3])
 
         # Deploy root state updates -- prey
         prey_env_ids_int32 = self.prey_indices[env_ids].to(dtype=torch.int32)
@@ -518,7 +530,19 @@ class LowLevelGame(BaseTask):
 
         # the predator is initialized at a random offset from the prey
         init_prey_pos = self.root_states[self.prey_indices, :3].detach().clone() # of size [num_envs x 3]
-        self.init_predator_pos = init_prey_pos - (torch.randn_like(init_prey_pos) - 0.2)
+        rand_offset = torch.zeros_like(init_prey_pos).uniform_(1.0, 10.0)
+        rand_sign = torch.rand(rand_offset.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
+        rand_sign[rand_sign < 0.5] = -1
+        rand_sign[rand_sign >= 0.5] = 1
+        rand_sign = rand_sign.unsqueeze(1)
+        offset = rand_sign * rand_offset
+
+        # print("init_prey_pos shape: ", init_prey_pos.shape)
+        # print("rand_sign shape: ", rand_sign.shape)
+        # print("rand_offset shape: ", rand_offset.shape)
+        # print("offset shape: ", offset.shape)
+
+        self.init_predator_pos = init_prey_pos - offset
         self.init_predator_pos[:, 2] = 0.3
 
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3) # shape: num_envs, num_bodies, xyz axis

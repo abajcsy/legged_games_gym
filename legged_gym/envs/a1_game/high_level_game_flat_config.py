@@ -14,7 +14,8 @@ class HighLevelGameFlatCfg( BaseConfig ):
         env_spacing = 3.        # not used with heightfields/trimeshes
         send_timeouts = True    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
-        env_radius = None         # restrict the environment to a circle of this radius (in meters); or do None
+        env_radius = None       # restrict the environment to a circle of this radius (in meters); or do None
+        capture_dist = 0.4      # if predator is closer than this dist to prey, they are captured
 
     class terrain:
         mesh_type = 'trimesh' #'plane'
@@ -23,12 +24,12 @@ class HighLevelGameFlatCfg( BaseConfig ):
         num_cols = 20 # number of terrain cols (types)
 
     class commands:
-        num_commands = 4 # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
+        num_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = True  # if true: compute ang vel command from heading error
         class ranges:
-            lin_vel_x = [-1.0, 1.0] # min max [m/s]
-            lin_vel_y = [-1.0, 1.0]   # min max [m/s]
-            ang_vel_yaw = [-1, 1]    # min max [rad/s]
+            lin_vel_x = [-1.0, 1.0]     # min max [m/s]
+            lin_vel_y = [-1.0, 1.0]     # min max [m/s]
+            ang_vel_yaw = [-1, 1]       # min max [rad/s]
             heading = [-3.14, 3.14]
 
     class init_state:
@@ -66,7 +67,7 @@ class HighLevelGameFlatCfg( BaseConfig ):
     class rewards:
         only_positive_rewards = True
         class scales:
-            evasion = 1.
+            evasion = 0.5
 
     class noise:
         add_noise = True

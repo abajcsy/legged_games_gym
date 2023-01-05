@@ -74,7 +74,7 @@ def play_game(args):
         obs = env.get_observations()
         # load policy
         train_cfg.runner.resume = True
-        train_cfg.runner.load_run = 'hl_vanilla_ll_a1_vanilla'
+        train_cfg.runner.load_run = 'hl_vanilla_ll_a1_vanilla_r_0.5'
         ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
         policy = ppo_runner.get_inference_policy(device=env.device)
 
