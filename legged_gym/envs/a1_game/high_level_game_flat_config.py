@@ -8,7 +8,8 @@ class HighLevelGameFlatCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-predator
         num_envs = 2000 # 4096
-        num_observations = 3
+        #num_observations = 3   # rel_x, rel_y, rel_z between predator and prey
+        num_observations = 12   # 3 rel pred-prey pos * 4-sample long history
         num_privileged_obs = None
         num_actions = 4         # lin_vel_x, lin_vel_y, ang_vel_yaw, heading
         env_spacing = 3.        # not used with heightfields/trimeshes
@@ -18,7 +19,7 @@ class HighLevelGameFlatCfg( BaseConfig ):
         capture_dist = 0.4      # if predator is closer than this dist to prey, they are captured
 
     class terrain:
-        mesh_type = 'trimesh' #'plane'
+        mesh_type = 'trimesh' # 'plane'
         curriculum = True
         num_rows= 10 # number of terrain rows (levels)
         num_cols = 20 # number of terrain cols (types)

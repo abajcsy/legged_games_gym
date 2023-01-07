@@ -52,6 +52,7 @@ class HighLevelGame():
 
         # setup the capture distance between predator-prey
         self.capture_dist = self.cfg.env.capture_dist
+        self.MAX_DIST = 1000.
 
         # env device is GPU only if sim is on GPU and use_gpu_pipeline=True, otherwise returned tensors are copied to CPU by physX.
         if sim_device_type == 'cuda' and sim_params.use_gpu_pipeline:
@@ -112,7 +113,8 @@ class HighLevelGame():
         torch._C._jit_set_profiling_executor(False)
 
         # allocate buffers
-        self.obs_buf = torch.zeros(self.num_envs, self.num_obs, device=self.device, dtype=torch.float)
+        # self.obs_buf = torch.zeros(self.num_envs, self.num_obs, device=self.device, dtype=torch.float)
+        self.obs_buf = self.MAX_DIST * torch.ones(self.num_envs, self.num_obs, device=self.device, dtype=torch.float)
         self.rew_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
         self.reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
         self.episode_length_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
@@ -184,29 +186,38 @@ class HighLevelGame():
             # print("prey: ", self.prey_states[hl_env_ids, :2])
             # print("predator: ", self.predator_pos[hl_env_ids, :2])
 
-            all_env_ids = torch.cat((hl_env_ids, ll_env_ids), dim=-1)
-            # all_env_ids = hl_env_ids
+            all_env_ids = hl_env_ids
 
             if self.cfg.env.env_radius is not None:
-                # Check if the predator and prey have left the restricted environment zone. If yes, reset them
-                prey_env_dones = torch.norm(self.prey_states[:, :2], dim=1) > self.cfg.env.env_radius
-                predator_env_dones = torch.norm(self.predator_pos[:, :2], dim=1) > self.cfg.env.env_radius
+                # check if the predator and prey have left the restricted environment zone.
+                # NOTE: need to account for the unique env_origins of each environment
+                prey_env_dones = torch.norm(self.prey_states[:, :2] - self.ll_env.env_origins[:, :2], dim=1) > self.cfg.env.env_radius
+                predator_env_dones = torch.norm(self.predator_pos[:, :2] - self.ll_env.env_origins[:, :2], dim=1) > self.cfg.env.env_radius
+
+                # print(self.prey_states[:, :2])
+
+                # if either predator or prey is outside the env_radius, reset
                 env_dist_dones = torch.logical_or(prey_env_dones, predator_env_dones)
                 env_dist_ids = env_dist_dones.nonzero(as_tuple=False).flatten()
                 all_env_ids = torch.cat((all_env_ids, env_dist_ids), dim=-1)
-                # TODO: THIS ISNT ACCOUNT FOR IN RESET AND DONES PROPERLY
 
-            # get the unique indicies of environments to be reset, and make corresponding reset_buf
-            env_ids = torch.unique(all_env_ids)
-            all_dones = torch.zeros_like(ll_dones, device=self.device, requires_grad=False)
-            all_dones[env_ids] = True
+                # get the unique indicies of environments to be reset
+                all_env_ids = torch.unique(all_env_ids)
 
             # print("     ll_env_ids: ", ll_env_ids)
             # print("     hl_env_ids: ", hl_env_ids)
             # print("     all_env_ids: ", all_env_ids)
             # print("     env_ids: ", env_ids)
 
-            self.reset_idx(hl_env_ids)
+            # NOTE: only need to reset the high-level envs here,
+            # because ll_env.step() resets based on the low-level reset criteria
+            self.reset_idx(all_env_ids)
+
+            # add in all the low-level envs that were reset, and construct the dones vector
+            all_env_ids = torch.cat((all_env_ids, ll_env_ids), dim=-1)
+            env_ids = torch.unique(all_env_ids)
+            all_dones = torch.zeros_like(ll_dones, device=self.device, requires_grad=False)
+            all_dones[env_ids] = True
             self.reset_buf = all_dones
 
             # compute the high-level observation: relative predator-prey state
@@ -289,9 +300,14 @@ class HighLevelGame():
     def compute_observations(self):
         """ Computes observations
         """
-        # add relative predator state
-        rel_predator_pos = self.predator_pos - self.prey_states[:, :3]
-        self.obs_buf = rel_predator_pos
+        # # add relative predator state
+        # rel_predator_pos = self.predator_pos - self.prey_states[:, :3]
+        # self.obs_buf = rel_predator_pos
+
+        # get the current
+        visible_predator_dist = self.sense_predator()
+        old_hist = self.obs_buf[:, 3:].clone() # remove the oldest relative position observation
+        self.obs_buf = torch.cat((old_hist, visible_predator_dist), dim=-1)
 
     def get_observations(self):
         self.compute_observations()
@@ -299,6 +315,48 @@ class HighLevelGame():
 
     def get_privileged_observations(self):
         return self.privileged_obs_buf
+
+    def sense_predator(self):
+        """
+        Returns: relative predator state if within FOV, else it returns MAX_DIST for each state component.
+
+        TODO: I treat the FOV the same for horiz, vert, etc. For realsense camera:
+                (HorizFOV)  = 64 degrees (~1.20428 rad)
+                (DiagFOV)   = 72 degrees
+                (VertFOV)   = 41 degrees
+        """
+        half_fov = 1.20428 / 2.
+
+        forward = quat_apply(self.ll_env.base_quat, self.ll_env.forward_vec) # direction vector of prey
+        rel_predator_pos = self.predator_pos - self.prey_states[:, :3] # relative position of predator w.r.t. prey
+
+        # TODO: only use  xy dim here?
+        dot_vec = torch.sum(forward * rel_predator_pos, dim=-1)
+        dot_vec = dot_vec.unsqueeze(-1)
+        n_forward = torch.norm(forward, p=2, dim=-1, keepdim=True)
+        n_rel_predator_pos = torch.norm(rel_predator_pos, p=2, dim=-1, keepdim=True)
+        denom = n_forward * n_rel_predator_pos
+
+        # angle of predator w.r.t prey
+        pred_angle = torch.acos(dot_vec / denom)
+
+        # see which predators are visible within the half_fov
+        sense_rel_predator_pos = self.MAX_DIST * torch.ones_like(rel_predator_pos, device=self.device, requires_grad=False)
+        sense_dones = torch.any(torch.abs(pred_angle) <= half_fov, dim=1)
+        sense_env_ids = sense_dones.nonzero(as_tuple=False).flatten()
+
+        # if visible, record their relative position, otherwise set their relative position to MAX_DIST
+        sense_rel_predator_pos[sense_env_ids, :] = rel_predator_pos[sense_env_ids, :]
+
+        # if sense_env_ids.nelement() != 0:
+        #     print("in sense_predator: ")
+        #     print(" forward: ", forward)
+        #     print(" rel_predator_pos: ", rel_predator_pos)
+        #     print(" half-fov:", half_fov, "  |   pred_angle: ", pred_angle)
+        #     print(" sense_env_ids:", sense_env_ids)
+        #     print(" sense_rel_predator_pos:", sense_rel_predator_pos)
+
+        return sense_rel_predator_pos
 
     def render(self, sync_frame_time=True):
         if self.viewer:
@@ -394,3 +452,7 @@ class HighLevelGame():
     def _reward_evasion(self):
         # Rewards distance between predator and prey
         return torch.norm(self.predator_pos - self.prey_states[:, :3], dim=1)
+
+    def _reward_termination(self):
+        # Terminal reward / penalty
+        return self.reset_buf * ~self.time_out_buf
