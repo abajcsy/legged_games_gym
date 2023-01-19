@@ -423,7 +423,10 @@ class LowLevelGame(BaseTask):
         rand_sign = rand_sign.unsqueeze(1)
         offset = rand_sign * rand_offset
         self.root_states[self.predator_indices[env_ids], :3] = init_prey_pos - offset
+        # self.root_states[self.predator_indices[env_ids], 0] += 8.0
+        # self.root_states[self.predator_indices[env_ids], 1] -= 5.0
         self.root_states[self.predator_indices[env_ids], 2] = 0.3
+        # self.root_states[self.predator_indices[env_ids], 3] = torch.zeros(len(self.predator_indices[env_ids])).uniform_(-np.pi, np.pi)  # randomize the heading
 
         # print("in ll_game: reset root states: ")
         # # print("     offset: ", offset)
@@ -529,6 +532,7 @@ class LowLevelGame(BaseTask):
         self.base_quat = self.root_states[self.prey_indices, 3:7] # self.root_states[:, 3:7]
 
         # the predator is initialized at a random offset from the prey
+        # HACK!!
         init_prey_pos = self.root_states[self.prey_indices, :3].detach().clone() # of size [num_envs x 3]
         rand_offset = torch.zeros_like(init_prey_pos).uniform_(1.0, 10.0)
         rand_sign = torch.rand(rand_offset.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
@@ -543,7 +547,10 @@ class LowLevelGame(BaseTask):
         # print("offset shape: ", offset.shape)
 
         self.init_predator_pos = init_prey_pos - offset
-        self.init_predator_pos[:, 2] = 0.3
+        # self.init_predator_pos[:, 0] += 8.0
+        # self.init_predator_pos[:, 1] -= 5.0
+        self.init_predator_pos[:, 2] = 0.3 # fixed height starting
+        # self.init_predator_pos[:, 3] = torch.zeros(self.num_envs).uniform_(-np.pi, np.pi) # randomize the heading
 
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3) # shape: num_envs, num_bodies, xyz axis
 
@@ -695,14 +702,16 @@ class LowLevelGame(BaseTask):
         robot_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
         # Create predator asset (a sphere)
-        sphere_r = 0.1
+        sphere_r = 0.15
         asset_options = gymapi.AssetOptions()
         asset_options.disable_gravity = True
-        predator_asset = self.gym.create_sphere(self.sim, sphere_r, asset_options)
+        # predator_asset = self.gym.create_sphere(self.sim, sphere_r, asset_options)
+        predator_asset = self.gym.create_box(self.sim, width=sphere_r, height=sphere_r*2, depth=sphere_r, options=asset_options)
 
         # initial condition and color
         predator_start_pose = gymapi.Transform()
         predator_start_pose.p = gymapi.Vec3(30, 0, 0.5)
+        predator_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
         predator_color = gymapi.Vec3(1, 0, 0)
         # ================================= #
 

@@ -9,14 +9,14 @@ class HighLevelGameFlatCfg( BaseConfig ):
         #   + 3 for relative xyz-state to point-predator
         num_envs = 2000 # 4096
         #num_observations = 3   # rel_x, rel_y, rel_z between predator and prey
-        num_observations = 12   # 3 rel pred-prey pos * 4-sample long history
+        num_observations = 17   # 3 rel pred-prey pos * 4-sample long history + 4 for binary occlusion variable + 1 for time
         num_privileged_obs = None
         num_actions = 4         # lin_vel_x, lin_vel_y, ang_vel_yaw, heading
         env_spacing = 3.        # not used with heightfields/trimeshes
         send_timeouts = True    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
         env_radius = None       # restrict the environment to a circle of this radius (in meters); or do None
-        capture_dist = 0.4      # if predator is closer than this dist to prey, they are captured
+        capture_dist = 0.5      # if predator is closer than this dist to prey, they are captured
 
     class terrain:
         mesh_type = 'trimesh' # 'plane'
@@ -68,7 +68,7 @@ class HighLevelGameFlatCfg( BaseConfig ):
     class rewards:
         only_positive_rewards = True
         class scales:
-            evasion = 0.5
+            evasion = 0.9
 
     class noise:
         add_noise = True

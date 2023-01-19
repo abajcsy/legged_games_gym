@@ -53,7 +53,7 @@ def goal_reach_lin_yaw_cmd(curr_pos, goal_pos, ranges):
 def play_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
     # override some parameters for testing
-    max_num_envs = 2
+    max_num_envs = 5
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.terrain.mesh_type = 'plane'
     env_cfg.terrain.num_rows = 4    # number of terrain rows (levels)
@@ -74,8 +74,11 @@ def play_game(args):
         obs = env.get_observations()
         # load policy
         train_cfg.runner.resume = True
-        train_cfg.runner.load_run = 'hl_vanilla_ll_a1_vanilla_r_0.5'
-        # train_cfg.runner.load_run = 'Jan05_17-40-42_'
+        # train_cfg.runner.load_run = 'hl_vanilla_ll_a1_vanilla_r_0.5'
+        # train_cfg.runner.load_run = 'hl_limitedFOV_ll_a1_vanilla'
+        # train_cfg.runner.load_run = 'hl_limitedFOV_aggresivePredV2_ll_a1_vanilla'
+        train_cfg.runner.load_run = 'hl_limitedFOV_limitedEnergy_ll_a1_vanilla' #'Jan11_13-50-29_'
+        # train_cfg.runner.load_run = 'Jan11_19-20-21_'
         ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
         policy = ppo_runner.get_inference_policy(device=env.device)
 
