@@ -705,8 +705,8 @@ class LowLevelGame(BaseTask):
         sphere_r = 0.15
         asset_options = gymapi.AssetOptions()
         asset_options.disable_gravity = True
-        # predator_asset = self.gym.create_sphere(self.sim, sphere_r, asset_options)
-        predator_asset = self.gym.create_box(self.sim, width=sphere_r, height=sphere_r*2, depth=sphere_r, options=asset_options)
+        predator_asset = self.gym.create_sphere(self.sim, sphere_r, asset_options)
+        # predator_asset = self.gym.create_box(self.sim, width=sphere_r, height=sphere_r*2, depth=sphere_r, options=asset_options)
 
         # initial condition and color
         predator_start_pose = gymapi.Transform()

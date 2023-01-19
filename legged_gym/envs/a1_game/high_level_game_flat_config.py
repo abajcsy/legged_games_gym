@@ -8,10 +8,11 @@ class HighLevelGameFlatCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-predator
         num_envs = 2000 # 4096
-        #num_observations = 3   # rel_x, rel_y, rel_z between predator and prey
-        num_observations = 17   # 3 rel pred-prey pos * 4-sample long history + 4 for binary occlusion variable + 1 for time
+        num_observations = 19   # prey:     (3 rel pred-prey pos * 4-sample long history + 4 for binary occlusion variable) = 16
+                                # predator: (3 rel pred-prey pos) = 3
+
         num_privileged_obs = None
-        num_actions = 4         # lin_vel_x, lin_vel_y, ang_vel_yaw, heading
+        num_actions = 6         # prey (lin_vel_x, lin_vel_y, ang_vel_yaw, heading) + predator (lin_vel_x, lin_vel_y) = 6
         env_spacing = 3.        # not used with heightfields/trimeshes
         send_timeouts = True    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
@@ -32,6 +33,8 @@ class HighLevelGameFlatCfg( BaseConfig ):
             lin_vel_y = [-1.0, 1.0]     # min max [m/s]
             ang_vel_yaw = [-1, 1]       # min max [rad/s]
             heading = [-3.14, 3.14]
+            predator_lin_vel_x = [-2.0, 2.0]
+            predator_lin_vel_y = [-2.0, 2.0]
 
     class init_state:
         predator_pos = [0.0, 0.0, 0.3] # x, y, z
@@ -69,6 +72,7 @@ class HighLevelGameFlatCfg( BaseConfig ):
         only_positive_rewards = True
         class scales:
             evasion = 0.9
+            pursuit = 0.9
 
     class noise:
         add_noise = True

@@ -77,8 +77,8 @@ def play_game(args):
         # train_cfg.runner.load_run = 'hl_vanilla_ll_a1_vanilla_r_0.5'
         # train_cfg.runner.load_run = 'hl_limitedFOV_ll_a1_vanilla'
         # train_cfg.runner.load_run = 'hl_limitedFOV_aggresivePredV2_ll_a1_vanilla'
-        train_cfg.runner.load_run = 'hl_limitedFOV_limitedEnergy_ll_a1_vanilla' #'Jan11_13-50-29_'
-        # train_cfg.runner.load_run = 'Jan11_19-20-21_'
+        # train_cfg.runner.load_run = 'hl_limitedFOV_limitedEnergy_ll_a1_vanilla'
+        train_cfg.runner.load_run = 'Jan19_12-29-19_'
         ppo_runner, train_cfg = task_registry.make_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
         policy = ppo_runner.get_inference_policy(device=env.device)
 

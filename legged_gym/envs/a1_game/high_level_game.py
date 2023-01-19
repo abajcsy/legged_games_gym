@@ -158,18 +158,20 @@ class HighLevelGame():
         # hl_control_decimation = 3  # running @ 12.5 Hz
         hl_control_decimation = 1  # running @ 50 Hz
 
-        # clip the commands
+        # clip the prey's commands
         command[:, 0] = torch.clip(command[:, 0], min=self.command_ranges["lin_vel_x"][0], max=self.command_ranges["lin_vel_x"][1])
         command[:, 1] = torch.clip(command[:, 1], min=self.command_ranges["lin_vel_y"][0], max=self.command_ranges["lin_vel_y"][1])
         if self.cfg.commands.heading_command:
             command[:, 2] = wrap_to_pi(command[:, 2])
 
+        # clip the predator's commands
+        command[:, 4] = torch.clip(command[:, 4], min=self.command_ranges["predator_lin_vel_x"][0], max=self.command_ranges["predator_lin_vel_x"][1])
+        command[:, 5] = torch.clip(command[:, 5], min=self.command_ranges["predator_lin_vel_y"][0], max=self.command_ranges["predator_lin_vel_y"][1])
+
         # high-level control loop
         for _ in range(hl_control_decimation):
 
-            self.ll_env.commands = command
-            # self.ll_env.commands = 0.0 * command
-            # self.ll_env.commands[:, 3] = np.pi
+            self.ll_env.commands = command[:, :4] # the first four commands are for the prey
 
             # get the low-level actions as a function of obs
             ll_obs = self.ll_env.get_observations()
@@ -180,8 +182,10 @@ class HighLevelGame():
             self.curr_episode_step += 1
 
             # simulate the predator action too
-            self.step_predator_single_integrator()
-            # self.step_predator_dubins_car()
+            print("observations: ", self.obs_buf)
+            print("prey commands: ", command[:, 0:4])
+            print("predator commands: ", command[:, 4:])
+            self.step_predator_single_integrator(command=command[:, 4:])
 
             # update the agent states after the forward simulation step
             self._update_agent_states()
@@ -195,12 +199,6 @@ class HighLevelGame():
 
             hl_env_ids = hl_dones.nonzero(as_tuple=False).flatten()
             ll_env_ids = ll_dones.nonzero(as_tuple=False).flatten()
-
-            # print("all dist: ", pred_prey_dist)
-            # print("capture dist: ", self.capture_dist)
-            # print("dist of hl_dones: ", pred_prey_dist[hl_dones])
-            # print("prey: ", self.prey_states[hl_env_ids, :2])
-            # print("predator: ", self.predator_pos[hl_env_ids, :2])
 
             all_env_ids = hl_env_ids
 
@@ -344,8 +342,9 @@ class HighLevelGame():
         self._update_agent_states()
 
         # reset buffers
-        self.obs_buf[env_ids, 0:12] = self.MAX_REL_POS  # reset the relative position to max relative position
-        self.obs_buf[env_ids, 12:] = 0                  # reset the sense booleans to zero and the episode tstep to zero
+        self.obs_buf[env_ids, 0:12] = self.MAX_REL_POS      # reset the prey's rel_predator_pos to max relative position
+        self.obs_buf[env_ids, 12:16] = 0                    # reset the prey's sense booleans to zero and the episode tstep to zero
+        self.obs_buf[env_ids, 16:] = -self.MAX_REL_POS      # reset the predator's rel_prey_pos to -max relative position
         self.episode_length_buf[env_ids] = 0
         self.curr_episode_step[env_ids] = 0
 
@@ -362,7 +361,6 @@ class HighLevelGame():
 
             Args: ll_rews (torch.Tensor) of size num_envs containing low-level reward per environment
         """
-        # print("low-level rewards:", ll_rews)
         ll_rew_weight = 2.0
         self.rew_buf = ll_rew_weight * ll_rews # sum together the low-level reward and the high-level reward
         for i in range(len(self.reward_functions)):
@@ -386,27 +384,29 @@ class HighLevelGame():
         # rel_predator_pos = self.predator_pos - self.prey_states[:, :3]
         # self.obs_buf = rel_predator_pos
 
-        # get the current
-        predator_dist, sense_bool = self.sense_predator()
+        # from prey's POV, get its sensing
+        rel_predator_pos, sense_bool = self.sense_predator()
+
+        # from predator's POV, get the relative position to the prey
+        rel_prey_pos = self.prey_states[:, :3] - self.predator_pos
 
         # obs_buf is laid out as:
         #   [s1, s2, s3, s4, bool1, bool2, bool3, bool4]
         #   where s1 = (px1, py1, pz1) is the relative position
-        old_pred_dist = self.obs_buf[:, 3:12].clone()   #  remove the oldest relative position observation
-        old_sense_bool = self.obs_buf[:, 13:16].clone()   # [num_envs x hist_len-1] remove the oldest sense bool
+        old_rel_pred_pos = self.obs_buf[:, 3:12].clone()    #  remove the oldest relative position observation
+        old_sense_bool = self.obs_buf[:, 13:16].clone()     # [num_envs x hist_len-1] remove the oldest sense bool
 
-        # print("predator_dist shape: ", predator_dist.shape)
-        # print("sense_bool shape: ", sense_bool.shape)
-        # print("     sense_bool: ", sense_bool)
-        # print("old_pred_dist shape: ", old_pred_dist.shape)
-        # print("old_sense_bool shape: ", old_sense_bool.shape)
-        self.obs_buf = torch.cat((old_pred_dist,
-                                  predator_dist,
+        # self.obs_buf = torch.cat((old_rel_pred_pos,
+        #                           rel_predator_pos,
+        #                           old_sense_bool,
+        #                           sense_bool.long(),
+        #                           self.curr_episode_step.unsqueeze(-1)), dim=-1)
+
+        self.obs_buf = torch.cat((old_rel_pred_pos,
+                                  rel_predator_pos,
                                   old_sense_bool,
                                   sense_bool.long(),
-                                  self.curr_episode_step.unsqueeze(-1)), dim=-1)
-
-
+                                  rel_prey_pos), dim=-1)
 
     def get_observations(self):
         self.compute_observations()
@@ -427,6 +427,7 @@ class HighLevelGame():
         half_fov = 1.20428 / 2.
 
         # forward = quat_apply(self.ll_env.base_quat, self.ll_env.forward_vec) # direction vector of prey
+        # rel_predator_pos = self.ll_env.root_states[self.ll_env.predator_indices, :3] - self.ll_env.root_states[self.ll_env.prey_indices, :3]
         rel_predator_pos = self.predator_pos - self.prey_states[:, :3] # relative position of predator w.r.t. prey
         forward = quat_apply_yaw(self.ll_env.base_quat, self.ll_env.forward_vec)
 
@@ -573,8 +574,12 @@ class HighLevelGame():
 
     # ------------ reward functions----------------
     def _reward_evasion(self):
-        # Rewards distance between predator and prey
+        # [POV of prey] Rewards *maximizing* distance between predator and prey
         return torch.norm(self.predator_pos - self.prey_states[:, :3], dim=1)
+
+    def _reward_pursuit(self):
+        # [POV of predator] Rewards *minimizing* distance between predator and prey
+        return -torch.norm(self.predator_pos - self.prey_states[:, :3], dim=1)
 
     def _reward_termination(self):
         # Terminal reward / penalty
