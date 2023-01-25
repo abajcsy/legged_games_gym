@@ -63,7 +63,7 @@ class LowLevelGame(BaseTask):
             device_id (int): 0, 1, ...
             headless (bool): Run without rendering if True
         """
-        print("IN LOW LEVEL GAME... ")
+        print("[LowLevelGame] initializing... ")
         self.cfg = cfg
         self.sim_params = sim_params
         self.height_samples = None
@@ -76,7 +76,9 @@ class LowLevelGame(BaseTask):
 
         if not self.headless:
             self.set_camera(self.cfg.viewer.pos, self.cfg.viewer.lookat)
+        print("[LowLevelGame] initializing buffers...")
         self._init_buffers()
+        print("[LowLevelGame] preparing reward function...")
         self._prepare_reward_function()
         self.init_done = True
 
@@ -423,8 +425,10 @@ class LowLevelGame(BaseTask):
         rand_sign = rand_sign.unsqueeze(1)
         offset = rand_sign * rand_offset
         self.root_states[self.predator_indices[env_ids], :3] = init_prey_pos - offset
+        # self.root_states[self.predator_indices[env_ids], 0] += 100.
+        # self.root_states[self.predator_indices[env_ids], 1] += 100.
         # self.root_states[self.predator_indices[env_ids], 0] += 8.0
-        # self.root_states[self.predator_indices[env_ids], 1] -= 5.0
+        # self.root_states[self.predator_indices[env_ids], 1] += 40.0
         self.root_states[self.predator_indices[env_ids], 2] = 0.3
         # self.root_states[self.predator_indices[env_ids], 3] = torch.zeros(len(self.predator_indices[env_ids])).uniform_(-np.pi, np.pi)  # randomize the heading
 
@@ -547,8 +551,10 @@ class LowLevelGame(BaseTask):
         # print("offset shape: ", offset.shape)
 
         self.init_predator_pos = init_prey_pos - offset
+        # self.init_predator_pos[:, 0] += 100.
+        # self.init_predator_pos[:, 1] += 100.
         # self.init_predator_pos[:, 0] += 8.0
-        # self.init_predator_pos[:, 1] -= 5.0
+        # self.init_predator_pos[:, 1] += 40.0
         self.init_predator_pos[:, 2] = 0.3 # fixed height starting
         # self.init_predator_pos[:, 3] = torch.zeros(self.num_envs).uniform_(-np.pi, np.pi) # randomize the heading
 
