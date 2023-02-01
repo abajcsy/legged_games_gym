@@ -45,7 +45,7 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 5
+    max_num_envs = 1
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.terrain.mesh_type = 'plane'
     env_cfg.terrain.num_rows = 4    # number of terrain rows (levels)
@@ -61,16 +61,18 @@ def play_dec_game(args):
     print("[play_dec_game] getting observations for predator and prey..")
     obs_pred = env.get_observations_pred()
     obs_prey = env.get_observations_prey()
+    print("[play_dec_game] obs_pred.shape: ", obs_pred.shape)
+    print("[play_dec_game] obs_prey.shape: ", obs_prey.shape)
 
     # load policies of predator and prey
     train_cfg.runner.resume = True
-    train_cfg.runner.load_run = 'Jan23_17-21-19_'
-    train_cfg.runner.checkpoint = 19 # NOTE: WITHOUT THIS IT GRABS WRONG CHECKPOINT
+    train_cfg.runner.load_run = 'Jan31_13-13-29_'
+    train_cfg.runner.checkpoint = 0 # TODO HACK : WITHOUT THIS IT GRABS WRONG CHECKPOINT
     dec_ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy_pred = dec_ppo_runner.get_inference_policy(agent_id=0, device=env.device)
     policy_prey = dec_ppo_runner.get_inference_policy(agent_id=1, device=env.device)
 
-    # camer info.
+    # camera info.
     RECORD_FRAMES = False
     MOVE_CAMERA = False
     camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)

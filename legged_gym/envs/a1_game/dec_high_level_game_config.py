@@ -7,13 +7,16 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   48 observations for nominal A1 setup
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-predator
-        num_envs = 2000 # 4096
-        num_observations_prey = 16      # prey:     (3 rel pred-prey pos * 4-sample long history + 4 for binary occlusion variable) = 16
-        num_observations_predator = 3   # predator: (3 rel pred-prey pos) = 3
+        num_envs = 2500 # 4096
+        num_observations_prey = 24
+        # num_observations_predator = 4
+        num_observations_predator = 3
+        # num_observations_predator = 24
         num_privileged_obs_prey = None
         num_privileged_obs_predator = None
         num_actions_prey = 4         # prey (lin_vel_x, lin_vel_y, ang_vel_yaw, heading) = 4
-        num_actions_predator = 2     # predator (lin_vel_x, lin_vel_y) = 2
+        num_actions_predator = 2     # predator (lin_vel_x, lin_vel_y) = 2 OR (lin_vel, ang_vel) = 2
+        # num_actions_predator = 3
         env_spacing = 3.        # not used with heightfields/trimeshes
         send_timeouts = True    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
@@ -33,11 +36,14 @@ class DecHighLevelGameCfg( BaseConfig ):
             lin_vel_y = [-1.0, 1.0]     # min max [m/s]
             ang_vel_yaw = [-1, 1]       # min max [rad/s]
             heading = [-3.14, 3.14]
+            # predator_lin_vel = [-2.0, 2.0]
             predator_lin_vel_x = [-2.0, 2.0]
             predator_lin_vel_y = [-2.0, 2.0]
+            predator_ang_vel = [-1, 1]
 
     class init_state:
         predator_pos = [0.0, 0.0, 0.3] # x, y, z
+        predator_heading = 0.       # between -pi and pi (predator)
         pos = [0.0, 0.0, 0.42]  # x,y,z [m] (prey pos)
         rot = [0.0, 0.0, 0.0, 1.0]  # x,y,z,w [quat]
         lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
@@ -72,11 +78,13 @@ class DecHighLevelGameCfg( BaseConfig ):
         only_positive_rewards = True
         class scales:
             evasion = 0.9
+            # termination = -0.0
 
     class rewards_predator:
         only_positive_rewards = False
         class scales:
             pursuit = 0.9
+            # termination = -0.0
 
     class noise:
         add_noise = True
@@ -126,8 +134,8 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         use_clipped_value_loss = True
         clip_param = 0.2
         entropy_coef = 0.01
-        num_learning_epochs = 5
-        num_mini_batches = 4  # mini batch size = num_envs*nsteps / nminibatches
+        num_learning_epochs = 2
+        num_mini_batches = 1  # before (4); mini batch size = num_envs*nsteps / nminibatches
         learning_rate = 1.e-3  # 5.e-4
         schedule = 'adaptive'  # could be adaptive, fixed
         gamma = 0.99
@@ -139,8 +147,8 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 200           # number of policy updates per agent
-        max_evolutions = 20            # number of times the predator-prey alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)  
+        max_iterations = 1000           # number of policy updates per agent
+        max_evolutions = 1 #20            # number of times the predator-prey alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
         save_interval = 50  # check for potential saves every this many iterations
