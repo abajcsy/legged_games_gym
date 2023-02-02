@@ -417,7 +417,7 @@ class LowLevelGame(BaseTask):
         self.root_states[self.prey_indices[env_ids], 7:13] = torch_rand_float(-0.5, 0.5, (len(env_ids), 6), device=self.device) # [7:10]: lin vel, [10:13]: ang vel
 
         # Reset predator info -- base position
-        init_prey_pos = self.root_states[self.prey_indices[env_ids], :3].detach().clone() # of size [num_env_ids x 3]
+        init_prey_pos = self.root_states[self.prey_indices[env_ids], :3].clone() # of size [num_env_ids x 3]
         rand_offset = torch.zeros_like(init_prey_pos).uniform_(1.0, 10.0)
         rand_sign = torch.rand(rand_offset.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
         rand_sign[rand_sign < 0.5] = -1
@@ -425,17 +425,13 @@ class LowLevelGame(BaseTask):
         rand_sign = rand_sign.unsqueeze(1)
         offset = rand_sign * rand_offset
         self.root_states[self.predator_indices[env_ids], :3] = init_prey_pos - offset
-        # self.root_states[self.predator_indices[env_ids], 0] += 100.
-        # self.root_states[self.predator_indices[env_ids], 1] += 100.
-        # self.root_states[self.predator_indices[env_ids], 0] += 8.0
-        # self.root_states[self.predator_indices[env_ids], 1] += 40.0
+        # self.root_states[self.predator_indices[env_ids], 0] -= 8.0
         self.root_states[self.predator_indices[env_ids], 2] = 0.3
-        # self.root_states[self.predator_indices[env_ids], 3] = torch.zeros(len(self.predator_indices[env_ids])).uniform_(-np.pi, np.pi)  # randomize the heading
-
-        # print("in ll_game: reset root states: ")
-        # # print("     offset: ", offset)
-        # print("     prey state: ", init_prey_pos)
-        # print("     predator state: ", self.root_states[self.predator_indices[env_ids], :3])
+        
+        # Set a random start rotation
+        init_predator_quat_vec = quat_from_angle_axis(self.init_predator_heading, self.z_unit_tensor)
+        self.root_states[self.predator_indices[env_ids], 3:7] = init_predator_quat_vec[env_ids, :]
+        # print("[LowLevelGame | _reset_root_states] init_predator_quat_vec: ", init_predator_quat_vec)
 
         # Deploy root state updates -- prey
         prey_env_ids_int32 = self.prey_indices[env_ids].to(dtype=torch.int32)
@@ -536,8 +532,7 @@ class LowLevelGame(BaseTask):
         self.base_quat = self.root_states[self.prey_indices, 3:7] # self.root_states[:, 3:7]
 
         # the predator is initialized at a random offset from the prey
-        # HACK!!
-        init_prey_pos = self.root_states[self.prey_indices, :3].detach().clone() # of size [num_envs x 3]
+        init_prey_pos = self.root_states[self.prey_indices, :3].clone() # of size [num_envs x 3]
         rand_offset = torch.zeros_like(init_prey_pos).uniform_(1.0, 10.0)
         rand_sign = torch.rand(rand_offset.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
         rand_sign[rand_sign < 0.5] = -1
@@ -553,10 +548,15 @@ class LowLevelGame(BaseTask):
         self.init_predator_pos = init_prey_pos - offset
         # self.init_predator_pos[:, 0] += 100.
         # self.init_predator_pos[:, 1] += 100.
-        # self.init_predator_pos[:, 0] += 8.0
+        # self.init_predator_pos[:, 0] -= 8.0
         # self.init_predator_pos[:, 1] += 40.0
         self.init_predator_pos[:, 2] = 0.3 # fixed height starting
         # self.init_predator_pos[:, 3] = torch.zeros(self.num_envs).uniform_(-np.pi, np.pi) # randomize the heading
+        # self.init_predator_heading = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False).uniform_(-np.pi, np.pi) # randomize the heading
+        # self.init_predator_heading = np.pi/2. * torch.ones(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+        self.init_predator_heading = torch.zeros(self.num_envs, dtype=torch.float, device=self.device, requires_grad=False)
+
+        print("[LowLevelGame] self.init_predator_heading: ", self.init_predator_heading)
 
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3) # shape: num_envs, num_bodies, xyz axis
 
@@ -570,6 +570,8 @@ class LowLevelGame(BaseTask):
         self.noise_scale_vec = self._get_noise_scale_vec(self.cfg)
         self.gravity_vec = to_torch(get_axis_params(-1., self.up_axis_idx), device=self.device).repeat((self.num_envs, 1))
         self.forward_vec = to_torch([1., 0., 0.], device=self.device).repeat((self.num_envs, 1))
+        self.z_unit_tensor = to_torch([0, 0, 1], dtype=torch.float, device=self.device).repeat((self.num_envs, 1))
+        self.x_unit_tensor = to_torch([1., 0., 0.], dtype=torch.float, device=self.device).repeat((self.num_envs, 1))
         self.torques = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.p_gains = torch.zeros(self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.d_gains = torch.zeros(self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
@@ -708,17 +710,22 @@ class LowLevelGame(BaseTask):
         robot_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
         # Create predator asset (a sphere)
-        sphere_r = 0.15
-        asset_options = gymapi.AssetOptions()
-        asset_options.disable_gravity = True
-        predator_asset = self.gym.create_sphere(self.sim, sphere_r, asset_options)
+        # sphere_r = 0.15
+        # asset_options = gymapi.AssetOptions()
+        # asset_options.disable_gravity = True
+        # predator_asset = self.gym.create_sphere(self.sim, sphere_r, asset_options)
         # predator_asset = self.gym.create_box(self.sim, width=sphere_r, height=sphere_r*2, depth=sphere_r, options=asset_options)
+
+
+        predator_asset_root = "/home/abajcsy/Downloads/isaacgym/assets"
+        predator_asset_file = "urdf/objects/cube_goal_multicolor_big.urdf"
+        predator_asset = self.gym.load_asset(self.sim, predator_asset_root, predator_asset_file)
 
         # initial condition and color
         predator_start_pose = gymapi.Transform()
         predator_start_pose.p = gymapi.Vec3(30, 0, 0.5)
         predator_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-        predator_color = gymapi.Vec3(1, 0, 0)
+        # predator_color = gymapi.Vec3(1, 0, 0)
         # ================================= #
 
         # Get the number of robot dofs and rigid bodies
@@ -804,8 +811,8 @@ class LowLevelGame(BaseTask):
             # Create the predator actor
             predator_actor_handle = self.gym.create_actor(env_handle, predator_asset, predator_start_pose, "predator",
                                                           i, 1, 0)
-            self.gym.set_rigid_body_color(env_handle, predator_actor_handle, 0,
-                                          gymapi.MESH_VISUAL, predator_color)
+            # self.gym.set_rigid_body_color(env_handle, predator_actor_handle, 0,
+            #                               gymapi.MESH_VISUAL, predator_color)
 
             # Store the predator indicies and handles
             predator_idx = self.gym.get_actor_index(env_handle, predator_actor_handle, gymapi.DOMAIN_SIM)
