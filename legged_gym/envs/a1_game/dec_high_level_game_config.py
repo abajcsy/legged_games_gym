@@ -10,8 +10,8 @@ class DecHighLevelGameCfg( BaseConfig ):
         num_envs = 2500 # 4096
         num_observations_prey = 16      # prey:     (3 rel pred-prey pos * 4-sample long history + 4 for binary occlusion variable) = 16
         # num_observations_predator = 24   # predator
-        num_observations_predator = 5
-        # num_observations_predator = 3
+        # num_observations_predator = 5
+        num_observations_predator = 3
         num_privileged_obs_prey = None
         num_privileged_obs_predator = None
         num_actions_prey = 4         # prey (lin_vel_x, lin_vel_y, ang_vel_yaw, heading) = 4
@@ -81,6 +81,17 @@ class DecHighLevelGameCfg( BaseConfig ):
         only_positive_rewards = False
         class scales:
             pursuit = 0.9
+            termination = 2.0
+
+    # class normalization:
+    #     class obs_scales:
+    #         lin_vel = 2.0
+    #         ang_vel = 0.25
+    #         dof_pos = 1.0
+    #         dof_vel = 0.05
+    #         height_measurements = 5.0
+    #     clip_observations = 100.
+    #     clip_actions = 100.
 
     class noise:
         add_noise = True
@@ -143,7 +154,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 1000           # number of policy updates per agent
+        max_iterations = 300           # number of policy updates per agent
         max_evolutions = 1            # number of times the predator-prey alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)  
 
         # logging

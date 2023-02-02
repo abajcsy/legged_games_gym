@@ -416,7 +416,7 @@ class LowLevelGame(BaseTask):
         # Prey info -- base velocities
         self.root_states[self.prey_indices[env_ids], 7:13] = torch_rand_float(-0.5, 0.5, (len(env_ids), 6), device=self.device) # [7:10]: lin vel, [10:13]: ang vel
 
-        # Reset predator info -- base position
+        # Reset predator info -- base position (random offset from prey)
         init_prey_pos = self.root_states[self.prey_indices[env_ids], :3].clone() # of size [num_env_ids x 3]
         rand_offset = torch.zeros_like(init_prey_pos).uniform_(1.0, 10.0)
         rand_sign = torch.rand(rand_offset.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
@@ -428,10 +428,12 @@ class LowLevelGame(BaseTask):
         # self.root_states[self.predator_indices[env_ids], 0] -= 8.0
         self.root_states[self.predator_indices[env_ids], 2] = 0.3
         
-        # Set a random start rotation
+        # Reset predator info -- rotation
         init_predator_quat_vec = quat_from_angle_axis(self.init_predator_heading, self.z_unit_tensor)
         self.root_states[self.predator_indices[env_ids], 3:7] = init_predator_quat_vec[env_ids, :]
-        # print("[LowLevelGame | _reset_root_states] init_predator_quat_vec: ", init_predator_quat_vec)
+
+        # Reset predator info -- base linear and velocities to zero
+        self.root_states[self.predator_indices[env_ids], 7:13] = torch.zeros(len(env_ids), 6, dtype=torch.float, device=self.device, requires_grad=False)  # [7:10]: lin vel, [10:13]: ang vel
 
         # Deploy root state updates -- prey
         prey_env_ids_int32 = self.prey_indices[env_ids].to(dtype=torch.int32)

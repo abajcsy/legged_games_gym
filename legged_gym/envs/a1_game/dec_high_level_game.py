@@ -130,7 +130,7 @@ class DecHighLevelGame():
 
         # allocate predator buffers
         self.obs_buf_pred = -self.MAX_REL_POS * torch.ones(self.num_envs, self.num_obs_pred, device=self.device, dtype=torch.float)
-        self.obs_buf_pred[:, -2:] = 0.
+        # self.obs_buf_pred[:, -2:] = 0.
         # print("[DecHighLevelGame] self.obs_buf_pred initialized as: ", self.obs_buf_pred)
         # print("[DecHighLevelGame] self.obs_buf_pred shape: ", self.obs_buf_pred.shape)
         # # self.obs_buf_pred[:, 0:12] = -self.MAX_REL_POS # TODO THIS SHOULD NOT BE POSSIBLE!!!!
@@ -283,10 +283,16 @@ class DecHighLevelGame():
 
         heading_quat = quat_from_angle_axis(self.predator_heading, self.z_unit_tensor)
         # print("[DecHighLevelGame | step_predator_single_integrator] heading_quat (z-unit): ", heading_quat)
+        # print("[DecHighLevelGame] curr predator quaternion: ", self.ll_env.root_states[self.ll_env.predator_indices, 3:7])
 
         # update the simulator state for the predator!
         self.ll_env.root_states[self.ll_env.predator_indices, :3] = self.predator_pos
         self.ll_env.root_states[self.ll_env.predator_indices, 3:7] = heading_quat
+
+        self.ll_env.root_states[self.ll_env.predator_indices, 7] = command_lin_vel_x # lin vel x
+        self.ll_env.root_states[self.ll_env.predator_indices, 8] = command_lin_vel_y # lin vel y
+        self.ll_env.root_states[self.ll_env.predator_indices, 9] = 0.  # lin vel z
+        self.ll_env.root_states[self.ll_env.predator_indices, 10:13] = 0. # ang vel
 
         # self.ll_env.gym.set_actor_root_state_tensor(self.ll_env.sim, gymtorch.unwrap_tensor(self.ll_env.root_states))
         predator_env_ids_int32 = self.ll_env.predator_indices.to(dtype=torch.int32)
@@ -299,6 +305,8 @@ class DecHighLevelGame():
         """ check terminations, compute observations and rewards
             calls self._post_physics_step_callback() for common computations
         """
+        self.gym.refresh_actor_root_state_tensor(self.ll_env.sim)
+
         # updates the local copies of agent state info
         self._update_agent_states()
 
@@ -332,9 +340,9 @@ class DecHighLevelGame():
         # print("[check_termination] predator_pos xy: ", self.predator_pos[:, :2])
         # print("[check_termination] dist btwn agents: ", torch.norm(self.prey_states[:, :2] - self.predator_pos[:, :2], dim=-1))
         # print("[check_termination] capture_dist: ", self.capture_dist)
-        # self.capture_buf = torch.norm(self.prey_states[:, :2] - self.predator_pos[:, :2], dim=-1) < self.capture_dist
-        self.reset_buf = torch.norm(self.prey_states[:, :2] - self.predator_pos[:, :2], dim=-1) < self.capture_dist
+        self.capture_buf = torch.norm(self.prey_states[:, :2] - self.predator_pos[:, :2], dim=-1) < self.capture_dist
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
+        self.reset_buf = self.capture_buf.clone()
         self.reset_buf |= self.time_out_buf
         # print("[check termination] capture_buf: ", self.capture_buf)
         # print("[check_termination] reset_buf: ", self.reset_buf)
@@ -361,7 +369,7 @@ class DecHighLevelGame():
 
         # reset buffers
         self.obs_buf_pred[env_ids, :] = -self.MAX_REL_POS
-        self.obs_buf_pred[env_ids, -2:] = 0
+        # self.obs_buf_pred[env_ids, -2:] = 0
         # self.obs_buf_pred[env_ids, 0:12] = -self.MAX_REL_POS # relative position
         # self.obs_buf_pred[env_ids, 12:16] = 0. # relative heading
         # self.obs_buf_pred[env_ids, 16:20] = 0  # dectected bools
@@ -373,6 +381,7 @@ class DecHighLevelGame():
         self.episode_length_buf[env_ids] = 0
         self.reset_buf[env_ids] = 1
         self.curr_episode_step[env_ids] = 0
+        self.capture_buf[env_ids] = 0
 
         # fill extras
         self.extras["episode"] = {}
@@ -435,7 +444,8 @@ class DecHighLevelGame():
             self.rew_buf_pred[:] = torch.clip(self.rew_buf_pred[:], min=0.)
         # add termination reward after clipping
         if "termination" in self.reward_scales_pred:
-            rew = self._reward_termination() * self.reward_scales["termination"]
+            # rew = self._reward_termination() * self.reward_scales_pred["termination"]
+            rew = ~self.capture_buf * -1 * self.reward_scales_pred["termination"]
             self.rew_buf_pred += rew
             self.episode_sums_pred["termination"] += rew
         # print("high level rewards + low-level rewards: ", self.rew_buf)
@@ -479,12 +489,12 @@ class DecHighLevelGame():
         cos_angle_global = torch.cos(prey_yaw_global)
         sin_angle_global = torch.sin(prey_yaw_global)
 
-        # self.obs_buf_pred = rel_prey_pos
+        self.obs_buf_pred = rel_prey_pos
 
-        self.obs_buf_pred = torch.cat((rel_prey_pos * 0.1,
-                                      cos_angle_global * 0.1, 
-                                      sin_angle_global * 0.1
-                                      ), dim=-1)
+        # self.obs_buf_pred = torch.cat((rel_prey_pos * 0.1,
+        #                               cos_angle_global * 0.1,
+        #                               sin_angle_global * 0.1
+        #                               ), dim=-1)
 
         # print("[DecHighLevelGame] in compute_observations_pred: ", self.obs_buf_pred[0, :])
 
