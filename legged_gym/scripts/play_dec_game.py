@@ -64,7 +64,7 @@ def play_dec_game(args):
 
     # load policies of predator and prey
     train_cfg.runner.resume = True
-    train_cfg.runner.load_run = 'Feb02_14-41-24_'
+    train_cfg.runner.load_run = 'Feb02_16-43-56_'
     train_cfg.runner.checkpoint = 0 # NOTE: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     dec_ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy_pred = dec_ppo_runner.get_inference_policy(agent_id=0, device=env.device)

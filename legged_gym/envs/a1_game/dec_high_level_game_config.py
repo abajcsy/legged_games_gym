@@ -7,16 +7,16 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   48 observations for nominal A1 setup
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-predator
-        num_envs = 2500 # 4096
+        num_envs = 3000 # 4096
         num_observations_prey = 16      # prey:     (3 rel pred-prey pos * 4-sample long history + 4 for binary occlusion variable) = 16
         # num_observations_predator = 24   # predator
-        # num_observations_predator = 5
-        num_observations_predator = 3
+        num_observations_predator = 5
+        # num_observations_predator = 3
         num_privileged_obs_prey = None
         num_privileged_obs_predator = None
         num_actions_prey = 4         # prey (lin_vel_x, lin_vel_y, ang_vel_yaw, heading) = 4
-        num_actions_predator = 2     # predator (lin_vel_x, lin_vel_y) = 2
-        # num_actions_predator = 3 # (vx, vy, omega)
+        # num_actions_predator = 2     # predator (lin_vel_x, lin_vel_y) = 2
+        num_actions_predator = 3 # (vx, vy, omega)
         env_spacing = 3.        # not used with heightfields/trimeshes
         send_timeouts = True    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
@@ -81,7 +81,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         only_positive_rewards = False
         class scales:
             pursuit = 0.9
-            termination = 2.0
+            termination = 5.0
 
     # class normalization:
     #     class obs_scales:
@@ -154,7 +154,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 300           # number of policy updates per agent
+        max_iterations = 1000           # number of policy updates per agent
         max_evolutions = 1            # number of times the predator-prey alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)  
 
         # logging

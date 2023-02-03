@@ -130,7 +130,7 @@ class DecHighLevelGame():
 
         # allocate predator buffers
         self.obs_buf_pred = -self.MAX_REL_POS * torch.ones(self.num_envs, self.num_obs_pred, device=self.device, dtype=torch.float)
-        # self.obs_buf_pred[:, -2:] = 0.
+        self.obs_buf_pred[:, -2:] = 0.
         # print("[DecHighLevelGame] self.obs_buf_pred initialized as: ", self.obs_buf_pred)
         # print("[DecHighLevelGame] self.obs_buf_pred shape: ", self.obs_buf_pred.shape)
         # # self.obs_buf_pred[:, 0:12] = -self.MAX_REL_POS # TODO THIS SHOULD NOT BE POSSIBLE!!!!
@@ -143,8 +143,8 @@ class DecHighLevelGame():
         self.capture_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.curr_episode_step = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
 
-        self.detected_buf_pred = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool) # stores in which environment the predator has sensed the prey
-        self.detected_buf_prey = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)  # stores in which environment the prey has sensed the predator
+        self.detected_buf_pred = torch.zeros(self.num_envs, 1, device=self.device, dtype=torch.bool) # stores in which environment the predator has sensed the prey
+        self.detected_buf_prey = torch.zeros(self.num_envs, 1, device=self.device, dtype=torch.bool)  # stores in which environment the prey has sensed the predator
 
         # used for transforms.
         self.x_unit_tensor = to_torch([1., 0., 0.], dtype=torch.float, device=self.device).repeat((self.num_envs, 1))
@@ -221,48 +221,54 @@ class DecHighLevelGame():
         ll_obs, _, ll_rews, ll_dones, ll_infos = self.ll_env.step(ll_prey_actions.detach())
 
         # forward simulate the predator action too
-        # self.step_predator_omnidirectional(command=command_pred)
-        self.step_predator_single_integrator(command=command_pred)
+        self.step_predator_omnidirectional(command=command_pred)
 
         # take care of terminations, compute observations, rewards, and dones
         self.post_physics_step(ll_rews, ll_dones)
 
         return self.obs_buf_pred, self.obs_buf_prey, self.privileged_obs_buf_pred, self.privileged_obs_buf_prey, self.rew_buf_pred, self.rew_buf_prey, self.reset_buf, self.extras
 
-    # def step_predator_omnidirectional(self, command):
-    #     """
-    #     Steps predator modeled as an omnidirectional agent
-    #         x' = x + dt * u1 * cos(theta)
-    #         y' = y + dt * u2 * sin(theta)
-    #         z' = z          
-    #         theta' = theta + dt * u3
-    #     where the control is 3-dimensional: 
-    #         u = [u1 u2 u3] = [vx, vy, omega] 
-    #     """
-    #     lin_vel_x = command[:, 0]
-    #     lin_vel_y = command[:, 1]
-    #     ang_vel = command[:, 2]
+    def step_predator_omnidirectional(self, command):
+        """
+        Steps predator modeled as an omnidirectional agent
+            x' = x + dt * u1 * cos(theta)
+            y' = y + dt * u2 * sin(theta)
+            z' = z
+            theta' = theta + dt * u3
+        where the control is 3-dimensional:
+            u = [u1 u2 u3] = [vx, vy, omega]
+        """
+        lin_vel_x = command[:, 0]
+        lin_vel_y = command[:, 1]
+        ang_vel = command[:, 2]
 
-    #     # TODO: predator gets simulated at the same Hz as the low-level controller!
-    #     for _ in range(self.ll_env.cfg.control.decimation):
-    #         self.predator_pos[:, 0] += self.ll_env.cfg.sim.dt * lin_vel_x * torch.cos(self.predator_heading)
-    #         self.predator_pos[:, 1] += self.ll_env.cfg.sim.dt * lin_vel_y * torch.sin(self.predator_heading)
-    #         self.predator_heading += self.ll_env.cfg.sim.dt * ang_vel
-    #         self.predator_heading = wrap_to_pi(self.predator_heading) # make sure heading is between -pi and pi
+        # TODO: predator gets simulated at the same Hz as the low-level controller!
+        for _ in range(self.ll_env.cfg.control.decimation):
+            self.predator_pos[:, 0] += self.ll_env.cfg.sim.dt * lin_vel_x * torch.cos(self.predator_heading)
+            self.predator_pos[:, 1] += self.ll_env.cfg.sim.dt * lin_vel_y * torch.sin(self.predator_heading)
+            self.predator_heading += self.ll_env.cfg.sim.dt * ang_vel
+            self.predator_heading = wrap_to_pi(self.predator_heading) # make sure heading is between -pi and pi
 
-    #     # convert from heading angle to quaternion
-    #     heading_quat = quat_from_angle_axis(self.predator_heading, self.z_unit_tensor)
+        # convert from heading angle to quaternion
+        heading_quat = quat_from_angle_axis(self.predator_heading, self.z_unit_tensor)
 
-    #     # update the simulator state for the predator!
-    #     self.ll_env.root_states[self.ll_env.predator_indices, :3] = self.predator_pos
-    #     self.ll_env.root_states[self.ll_env.predator_indices, 3:7] = heading_quat
-    #     # self.ll_env.gym.set_actor_root_state_tensor(self.ll_env.sim, gymtorch.unwrap_tensor(self.ll_env.root_states))
+        # update the simulator state for the predator!
+        self.ll_env.root_states[self.ll_env.predator_indices, :3] = self.predator_pos
+        self.ll_env.root_states[self.ll_env.predator_indices, 3:7] = heading_quat
 
-    #     predator_env_ids_int32 = self.ll_env.predator_indices.to(dtype=torch.int32)
-    #     self.gym.set_actor_root_state_tensor_indexed(self.ll_env.sim,
-    #                                                  gymtorch.unwrap_tensor(self.ll_env.root_states),
-    #                                                  gymtorch.unwrap_tensor(predator_env_ids_int32),
-    #                                                  len(predator_env_ids_int32))
+        self.ll_env.root_states[self.ll_env.predator_indices, 7] = lin_vel_x  # lin vel x
+        self.ll_env.root_states[self.ll_env.predator_indices, 8] = lin_vel_y  # lin vel y
+        self.ll_env.root_states[self.ll_env.predator_indices, 9] = 0.  # lin vel z
+        self.ll_env.root_states[self.ll_env.predator_indices, 10] = 0. # ang vel x
+        self.ll_env.root_states[self.ll_env.predator_indices, 11] = 0. # ang_vel y
+        self.ll_env.root_states[self.ll_env.predator_indices, 12] = ang_vel # ang_vel z
+
+        # self.ll_env.gym.set_actor_root_state_tensor(self.ll_env.sim, gymtorch.unwrap_tensor(self.ll_env.root_states))
+        predator_env_ids_int32 = self.ll_env.predator_indices.to(dtype=torch.int32)
+        self.gym.set_actor_root_state_tensor_indexed(self.ll_env.sim,
+                                                     gymtorch.unwrap_tensor(self.ll_env.root_states),
+                                                     gymtorch.unwrap_tensor(predator_env_ids_int32),
+                                                     len(predator_env_ids_int32))
 
     def step_predator_single_integrator(self, command):
         """
@@ -292,7 +298,7 @@ class DecHighLevelGame():
         self.ll_env.root_states[self.ll_env.predator_indices, 7] = command_lin_vel_x # lin vel x
         self.ll_env.root_states[self.ll_env.predator_indices, 8] = command_lin_vel_y # lin vel y
         self.ll_env.root_states[self.ll_env.predator_indices, 9] = 0.  # lin vel z
-        self.ll_env.root_states[self.ll_env.predator_indices, 10:13] = 0. # ang vel
+        self.ll_env.root_states[self.ll_env.predator_indices, 10:13] = 0. # ang vel xyz
 
         # self.ll_env.gym.set_actor_root_state_tensor(self.ll_env.sim, gymtorch.unwrap_tensor(self.ll_env.root_states))
         predator_env_ids_int32 = self.ll_env.predator_indices.to(dtype=torch.int32)
@@ -445,7 +451,7 @@ class DecHighLevelGame():
         # add termination reward after clipping
         if "termination" in self.reward_scales_pred:
             # rew = self._reward_termination() * self.reward_scales_pred["termination"]
-            rew = ~self.capture_buf * -1 * self.reward_scales_pred["termination"]
+            rew = self.capture_buf * self.reward_scales_pred["termination"]
             self.rew_buf_pred += rew
             self.episode_sums_pred["termination"] += rew
         # print("high level rewards + low-level rewards: ", self.rew_buf)
@@ -477,45 +483,52 @@ class DecHighLevelGame():
         # from predator's POV, get the relative position to the prey
         rel_prey_pos = self.prey_states[:, :3] - self.predator_pos
 
-        # angle_btwn_agents_global = torch.atan2(rel_prey_pos[:, 1], rel_prey_pos[:, 0]) - self.predator_heading
-        # angle_btwn_agents_global = angle_btwn_agents_global.unsqueeze(-1)
-        # angle_btwn_agents_global = wrap_to_pi(angle_btwn_agents_global)
+        angle_btwn_agents_global = torch.atan2(rel_prey_pos[:, 1], rel_prey_pos[:, 0]) - self.predator_heading
+        angle_btwn_agents_global = angle_btwn_agents_global.unsqueeze(-1)
+        angle_btwn_agents_global = wrap_to_pi(angle_btwn_agents_global)
 
         # NOTE: I think that get_euler_xyz returns yaw in [0, 2*pi]
-        _, _, yaw = get_euler_xyz(self.ll_env.base_quat) 
-        # print("[compute_observations_pred] yaw: ", yaw)
-        prey_yaw_global = yaw.unsqueeze(-1)
-        prey_yaw_global = wrap_to_pi(prey_yaw_global) # wrap to -pi to pi
-        cos_angle_global = torch.cos(prey_yaw_global)
-        sin_angle_global = torch.sin(prey_yaw_global)
+        # _, _, yaw = get_euler_xyz(self.ll_env.base_quat)
+        # # print("[compute_observations_pred] yaw: ", yaw)
+        # prey_yaw_global = yaw.unsqueeze(-1)
+        # prey_yaw_global = wrap_to_pi(prey_yaw_global) # wrap to -pi to pi
+        cos_angle_global = torch.cos(angle_btwn_agents_global)
+        sin_angle_global = torch.sin(angle_btwn_agents_global)
 
-        self.obs_buf_pred = rel_prey_pos
-
-        # self.obs_buf_pred = torch.cat((rel_prey_pos * 0.1,
-        #                               cos_angle_global * 0.1,
-        #                               sin_angle_global * 0.1
-        #                               ), dim=-1)
+        self.obs_buf_pred = torch.cat((rel_prey_pos * 0.1,
+                                      cos_angle_global * 0.1,
+                                      sin_angle_global * 0.1
+                                      ), dim=-1)
 
         # print("[DecHighLevelGame] in compute_observations_pred: ", self.obs_buf_pred[0, :])
 
     # def compute_observations_pred(self):
     #     """ Computes observations of the predator with partial observability.
     #     """
-    
+    #
     #     # from prey's POV, get its sensing
-    #     sense_rel_pos, sense_rel_yaw_global, detected_bool, visible_bool = self.predator_sense_prey()
-    
+    #     sense_rel_pos, sense_rel_yaw_global, sense_rel_heading_local, detected_bool, visible_bool = self.predator_sense_prey()
+    #
     #     # obs_buf is laid out as:
-    #     #   [s1, s2, s3, s4, h1, h2, h3, h4, d1, d2, d3, d4, v1, v2, v3, v4]
+    #     #
+    #     #   [s1, s2, s3, s4,
+    #     #    sin(h1_g), cos(h1_g), sin(h2_g), cos(h2_g), sin(h3_g), cos(h3_g), sin(h4_g), cos(h4_g),
+    #     #    sin(h1_l), cos(h1_l), sin(h2_l), cos(h2_l), sin(h3_l), cos(h3_l), sin(h4_l), cos(h4_l),
+    #     #    d1, d2, d3, d4,
+    #     #    v1, v2, v3, v4]
+    #     #
     #     #   where s1 = (px1, py1, pz1) is the relative position (of size 3)
-    #     #         h1 = is the relative heading (of size 1)
+    #     #         h1_g = is the *global* angle between the heading of predator and COM of prey (of size 1)
+    #     #         h1_l = is the *local* relative heading between predator and prey (of size 1)
     #     #         d1 = is "detected" boolean which tracks if the prey was detected once (of size 1)
-    #     #         v1 = is "visible" boolean which tracks if the prey is visible (of size 1)
+    #     #         v1 = is "visible" boolean which tracks if the prey was visiblein FOV (of size 1)
+    #     #
+    #     #
     #     old_sense_rel_pos = self.obs_buf_pred[:, 3:12].clone()         # remove the oldest relative position observation
     #     old_sense_rel_yaw_global = self.obs_buf_pred[:, 13:16].clone()    # removes the oldest relative heading observation
     #     old_detect_bool = self.obs_buf_pred[:, 17:20].clone()               # remove the corresponding oldest detected bool
     #     old_visible_bool = self.obs_buf_pred[:, 21:].clone()                # remove the corresponding oldest visible bool
-    
+    #
     #     # a new observation has the form: (rel_opponent_pos, rel_opponent_heading, detected_bool, visible_bool)
     #     self.obs_buf_pred = torch.cat((old_sense_rel_pos,
     #                               sense_rel_pos,
@@ -526,8 +539,8 @@ class DecHighLevelGame():
     #                               old_visible_bool,
     #                               visible_bool.long(),
     #                               ), dim=-1)
-    
-        # print("[DecHighLevelGame] in compute_observations_pred: ", self.obs_buf_pred[0, :])
+    #
+    #     # print("[DecHighLevelGame] in compute_observations_pred: ", self.obs_buf_pred[0, :])
 
 
     def get_observations_pred(self):
@@ -612,37 +625,49 @@ class DecHighLevelGame():
 
     def predator_sense_prey(self):
         """
-        Returns: sensing from the POV of the predator.
+        Returns: sensing information the POV of the predator.
+
+            sense_rel_prey_pos (torch.Tensor): if is visible, contains the relative prey position;
+                                               if not visible, copies the last relative prey position
+            sense_rel_prey_yaw ()
         """
         half_fov = 1.20428 / 2. # full FOV is ~64 degrees; same FOV as prey
 
         # relative position of prey w.r.t. predator
         rel_prey_pos = self.prey_states[:, :3] - self.predator_pos 
 
-        # relative heading (global)
+        # angle between the predator's heading and the prey's COM (global)
         angle_btwn_agents_global = torch.atan2(rel_prey_pos[:, 1], rel_prey_pos[:, 0]) - self.predator_heading
         angle_btwn_agents_global = angle_btwn_agents_global.unsqueeze(-1)
 
+        # relative heading between the predator's heading and the prey's heading (local)
+        prey_forward = quat_apply_yaw(self.ll_env.base_quat, self.ll_env.forward_vec)
+        prey_heading = torch.atan2(prey_forward[:, 1], prey_forward[:, 0])
+        angle_btwn_heading_local = wrap_to_pi(prey_heading - self.predator_heading) # make sure relative heading is between -pi and pi
+        angle_btwn_heading_local = angle_btwn_heading_local.unsqueeze(-1)
+
         sense_rel_prey_pos = rel_prey_pos.clone()
         sense_rel_prey_yaw_global = angle_btwn_agents_global.clone()
+        sense_angle_btwn_heading_local = angle_btwn_heading_local.clone()
 
         # find environments where prey is visible
         fov_bool = torch.any(torch.abs(angle_btwn_agents_global) <= half_fov, dim=1)
         visible_env_ids = fov_bool.nonzero(as_tuple=False).flatten()
+        hidden_env_ids = (fov_bool == 0).nonzero(as_tuple=False).flatten()
 
         # mark envs where prey has been detected at least once 
-        self.detected_buf_pred[visible_env_ids] = 1
+        self.detected_buf_pred[visible_env_ids, :] = 1
 
         # mark envs where we prey was visible
         visible_bool = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)
         visible_bool[visible_env_ids, :] = 1
 
         # if we didn't sense the prey now, copy over the predator's previous sensed position as our new "measurement"
-        hidden_env_ids = (visible_bool == 0).nonzero(as_tuple=False).flatten()
         sense_rel_prey_pos[hidden_env_ids, :] = self.obs_buf_pred[hidden_env_ids, 9:12].clone()
         sense_rel_prey_yaw_global[hidden_env_ids, :] = self.obs_buf_pred[hidden_env_ids, 15:16].clone()
+        sense_angle_btwn_heading_local[hidden_env_ids, :] = 0. #TODO CHANGE THIS!
 
-        return sense_rel_prey_pos, sense_rel_prey_yaw_global, self.detected_buf_pred.unsqueeze(-1), visible_bool
+        return sense_rel_prey_pos, sense_rel_prey_yaw_global, sense_angle_btwn_heading_local, self.detected_buf_pred, visible_bool
 
 
     def render(self, sync_frame_time=True):
