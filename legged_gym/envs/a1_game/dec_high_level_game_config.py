@@ -9,18 +9,16 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 3 for relative xyz-state to point-predator
         num_envs = 3000 # 4096
         num_observations_prey = 16      # prey:     (3 rel pred-prey pos * 4-sample long history + 4 for binary occlusion variable) = 16
-        # num_observations_predator = 24   # predator
         num_observations_predator = 5
-        # num_observations_predator = 3
+        # num_observations_predator = 36 # 24
         num_privileged_obs_prey = None
         num_privileged_obs_predator = None
         num_actions_prey = 4         # prey (lin_vel_x, lin_vel_y, ang_vel_yaw, heading) = 4
-        # num_actions_predator = 2     # predator (lin_vel_x, lin_vel_y) = 2
-        num_actions_predator = 3 # (vx, vy, omega)
+        num_actions_predator = 3     # predator (vx, vy, omega) = 3
         env_spacing = 3.        # not used with heightfields/trimeshes
         send_timeouts = True    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
-        capture_dist = 0.5      # if predator is closer than this dist to prey, they are captured
+        capture_dist = 0.8      # if predator is closer than this dist to prey, they are captured
 
     class terrain:
         mesh_type = 'plane' # 'trimesh'
@@ -36,16 +34,19 @@ class DecHighLevelGameCfg( BaseConfig ):
             lin_vel_y = [-1.0, 1.0]     # min max [m/s]
             ang_vel_yaw = [-1, 1]       # min max [rad/s]
             heading = [-3.14, 3.14]
-            predator_lin_vel_x = [-2.0, 2.0]
-            predator_lin_vel_y = [-2.0, 2.0]
-            predator_ang_vel_yaw = [-1.0, 1.0] 
+            predator_lin_vel_x = [-2.0, 2.0] # min max [m/s]
+            predator_lin_vel_y = [-2.0, 2.0] # min max [m/s]
+            predator_ang_vel_yaw = [-1.0, 1.0] # min max [rad/s]
 
     class init_state:
-        predator_pos = [0.0, 0.0, 0.3] # x, y, z
-        pos = [0.0, 0.0, 0.42]  # x,y,z [m] (prey pos)
-        rot = [0.0, 0.0, 0.0, 1.0]  # x,y,z,w [quat]
-        lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
-        ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
+        predator_pos = [0.0, 0.0, 0.3] # x, y, z (predator pos)
+        predator_rot = [0.0, 0.0, 0.0, 1.0]  # x,y,z,w [quat]
+        predator_lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
+        predator_ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
+        prey_pos = [0.0, 0.0, 0.42]  # x,y,z [m] (prey pos)
+        prey_rot = [0.0, 0.0, 0.0, 1.0]  # x,y,z,w [quat]
+        prey_lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
+        prey_ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
         default_joint_angles = { # = target angles [rad] when action = 0.0
             'FL_hip_joint': 0.1,   # [rad]
             'RL_hip_joint': 0.1,   # [rad]
@@ -80,8 +81,8 @@ class DecHighLevelGameCfg( BaseConfig ):
     class rewards_predator:
         only_positive_rewards = False
         class scales:
-            pursuit = 0.9
-            termination = 5.0
+            pursuit = -1.0
+            termination = 10.0 #5.0
 
     # class normalization:
     #     class obs_scales:
@@ -100,7 +101,8 @@ class DecHighLevelGameCfg( BaseConfig ):
     class viewer:
         ref_env = 0
         pos = [10, 0, 6]  # [m]
-        lookat = [11., 5, 3.]  # [m]self.cfg.terrain.num_rows
+        lookat = [0, 0, 0]
+        # lookat = [11., 5, 3.]  # [m]self.cfg.terrain.num_rows
 
     class sim:
         dt =  0.005
