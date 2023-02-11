@@ -210,14 +210,14 @@ class TaskRegistry():
         if resume:
             # load previously trained model
             print(train_cfg.runner.checkpoint)
-            resume_path_pred = get_dec_load_path(log_root, agent_id=0, load_run=train_cfg.runner.load_run,
+            resume_path_agent = get_dec_load_path(log_root, agent_id=0, load_run=train_cfg.runner.load_run,
                                                  checkpoint=train_cfg.runner.checkpoint)
-            resume_path_prey = get_dec_load_path(log_root, agent_id=1, load_run=train_cfg.runner.load_run,
+            resume_path_robot = get_dec_load_path(log_root, agent_id=1, load_run=train_cfg.runner.load_run,
                                                  checkpoint=train_cfg.runner.checkpoint)
-            print(f"Loading PREDATOR model from: {resume_path_pred}")
-            runner.load(agent_id=0, path=resume_path_pred)
-            print(f"Loading PREY model from: {resume_path_prey}")
-            runner.load(agent_id=1, path=resume_path_prey)
+            print(f"Loading AGENT model from: {resume_path_agent}")
+            runner.load(agent_id=0, path=resume_path_agent)
+            print(f"Loading ROBOT model from: {resume_path_robot}")
+            runner.load(agent_id=1, path=resume_path_robot)
         return runner, train_cfg
 
 # make global task registry

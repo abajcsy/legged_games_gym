@@ -43,7 +43,8 @@ def train(args):
     print("[train_game] making the algorithm runner...")
     ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args)
     print("[train_game] starting the PPO runner...")
-    ppo_runner.learn(max_num_evolutions=train_cfg.runner.max_evolutions, num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=True)
+    init_at_random_ep_len = False
+    ppo_runner.learn(max_num_evolutions=train_cfg.runner.max_evolutions, num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=init_at_random_ep_len)
 
 if __name__ == '__main__':
     args = get_args()

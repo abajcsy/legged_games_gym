@@ -6,19 +6,19 @@ class DecHighLevelGameCfg( BaseConfig ):
         # note:
         #   48 observations for nominal A1 setup
         #   + 187 for non-flat terrain observations
-        #   + 3 for relative xyz-state to point-predator
+        #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
-        num_observations_prey = 16      # prey:     (3 rel pred-prey pos * 4-sample long history + 4 for binary occlusion variable) = 16
-        num_observations_predator = 5
-        # num_observations_predator = 36 # 24
-        num_privileged_obs_prey = None
-        num_privileged_obs_predator = None
-        num_actions_prey = 4         # prey (lin_vel_x, lin_vel_y, ang_vel_yaw, heading) = 4
-        num_actions_predator = 3     # predator (vx, vy, omega) = 3
+        num_observations_robot = 3      # ROBOT
+        num_observations_agent = 5      # AGENT (CUBE)
+        # num_observations_agent = 36 # 24
+        num_privileged_obs_robot = None
+        num_privileged_obs_agent = None
+        num_actions_robot = 4         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw, heading) = 4
+        num_actions_agent = 3     # other agent (vx, vy, omega) = 3
         env_spacing = 3.        # not used with heightfields/trimeshes
-        send_timeouts = True    # send time out information to the algorithm
+        send_timeouts = False    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
-        capture_dist = 0.8      # if predator is closer than this dist to prey, they are captured
+        capture_dist = 0.8      # if the two agents are closer than this dist, they are captured
 
     class terrain:
         mesh_type = 'plane' # 'trimesh'
@@ -27,26 +27,26 @@ class DecHighLevelGameCfg( BaseConfig ):
         num_cols = 20 # number of terrain cols (types)
 
     class commands: # note: commands and actions are the same for the high-level policy
-        # num_prey_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
-        heading_command = True       # if true: compute ang vel command from heading error
+        # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
+        heading_command = False         # if true: compute ang vel command from heading error
         class ranges:
             lin_vel_x = [-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [-1.0, 1.0]     # min max [m/s]
             ang_vel_yaw = [-1, 1]       # min max [rad/s]
             heading = [-3.14, 3.14]
-            predator_lin_vel_x = [-2.0, 2.0] # min max [m/s]
-            predator_lin_vel_y = [-2.0, 2.0] # min max [m/s]
-            predator_ang_vel_yaw = [-1.0, 1.0] # min max [rad/s]
+            agent_lin_vel_x = [-2.0, 2.0] # min max [m/s]
+            agent_lin_vel_y = [-2.0, 2.0] # min max [m/s]
+            agent_ang_vel_yaw = [-1.0, 1.0] # min max [rad/s]
 
     class init_state:
-        predator_pos = [0.0, 0.0, 0.3] # x, y, z (predator pos)
-        predator_rot = [0.0, 0.0, 0.0, 1.0]  # x,y,z,w [quat]
-        predator_lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
-        predator_ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
-        prey_pos = [0.0, 0.0, 0.42]  # x,y,z [m] (prey pos)
-        prey_rot = [0.0, 0.0, 0.0, 1.0]  # x,y,z,w [quat]
-        prey_lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
-        prey_ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
+        agent_pos = [0.0, 0.0, 0.3] # x, y, z (agent pos)
+        agent_rot = [0.0, 0.0, 0.0, 1.0]  # x,y,z,w [quat]
+        agent_lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
+        agent_ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
+        robot_pos = [0.0, 0.0, 0.42]  # x,y,z [m] (robot pos)
+        robot_rot = [0.0, 0.0, 0.0, 1.0]  # x,y,z,w [quat]
+        robot_lin_vel = [0.0, 0.0, 0.0]  # x,y,z [m/s]
+        robot_ang_vel = [0.0, 0.0, 0.0]  # x,y,z [rad/s]
         default_joint_angles = { # = target angles [rad] when action = 0.0
             'FL_hip_joint': 0.1,   # [rad]
             'RL_hip_joint': 0.1,   # [rad]
@@ -63,6 +63,8 @@ class DecHighLevelGameCfg( BaseConfig ):
             'FR_calf_joint': -1.5,  # [rad]
             'RR_calf_joint': -1.5,    # [rad]
         }
+        curriculum = False
+        max_init_dists = [2.0, 4.0, 6.0, 8.0, 10.0]
 
     class domain_rand:
         randomize_friction = True
@@ -73,16 +75,18 @@ class DecHighLevelGameCfg( BaseConfig ):
         push_interval_s = 15
         max_push_vel_xy = 1.
 
-    class rewards_prey:
-        only_positive_rewards = True
-        class scales:
-            evasion = 0.9
-
-    class rewards_predator:
+    class rewards_robot: # ROBOT!
         only_positive_rewards = False
         class scales:
             pursuit = -1.0
-            termination = 10.0 #5.0
+            termination = 50.0
+            robot_ctrl = 0.
+
+    class rewards_agent: # CUBE!
+        only_positive_rewards = False
+        class scales:
+            pursuit = -1.0
+            termination = 10.0
 
     # class normalization:
     #     class obs_scales:
@@ -157,10 +161,10 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
         max_iterations = 1000           # number of policy updates per agent
-        max_evolutions = 1            # number of times the predator-prey alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)  
+        max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
-        save_interval = 50  # check for potential saves every this many iterations
+        save_interval = 5  # check for potential saves every this many iterations
         experiment_name = 'test'
         run_name = ''
         # load and resume

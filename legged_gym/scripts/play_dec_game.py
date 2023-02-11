@@ -45,7 +45,7 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 5
+    max_num_envs = 10
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.terrain.mesh_type = 'plane'
     env_cfg.terrain.num_rows = 4    # number of terrain rows (levels)
@@ -58,17 +58,17 @@ def play_dec_game(args):
     # # prepare environment
     print("[play_dec_game] making environment...")
     env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
-    print("[play_dec_game] getting observations for predator and prey..")
-    obs_pred = env.get_observations_pred()
-    obs_prey = env.get_observations_prey()
+    print("[play_dec_game] getting observations for both agents..")
+    obs_agent = env.get_observations_agent()
+    obs_robot = env.get_observations_robot()
 
-    # load policies of predator and prey
+    # load policies of agent and robot
     train_cfg.runner.resume = True
-    train_cfg.runner.load_run = 'Feb07_00-01-32_'
-    train_cfg.runner.checkpoint = 0 # NOTE: WITHOUT THIS IT GRABS WRONG CHECKPOINT
+    train_cfg.runner.load_run = 'Feb10_19-11-32_'
+    train_cfg.runner.checkpoint = 400 # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     dec_ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
-    policy_pred = dec_ppo_runner.get_inference_policy(agent_id=0, device=env.device)
-    policy_prey = dec_ppo_runner.get_inference_policy(agent_id=1, device=env.device)
+    policy_agent = dec_ppo_runner.get_inference_policy(agent_id=0, device=env.device)
+    policy_robot = dec_ppo_runner.get_inference_policy(agent_id=1, device=env.device)
 
     # camer info.
     RECORD_FRAMES = False
@@ -79,9 +79,10 @@ def play_dec_game(args):
     img_idx = 0
 
     for i in range(10 * int(env.max_episode_length)):
-        actions_pred = policy_pred(obs_pred.detach())
-        actions_prey = policy_prey(obs_prey.detach())
-        obs_pred, obs_prey, _, _, rews_pred, rews_prey, dones, infos = env.step(actions_pred.detach(), actions_prey.detach())
+        actions_agent = policy_agent(obs_agent.detach())
+        actions_robot  = policy_robot(obs_robot .detach())
+        obs_agent, obs_robot , _, _, rews_agent, rews_robot, dones, infos = env.step(actions_agent.detach(), actions_robot.detach())
+
         if RECORD_FRAMES:
             if i % 2:
                 filename = os.path.join(LEGGED_GYM_ROOT_DIR, 'logs', train_cfg.runner.experiment_name, 'exported',

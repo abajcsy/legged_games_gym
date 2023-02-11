@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
+import pdb
 
 from legged_gym import LEGGED_GYM_ROOT_DIR, envs
 from time import time
@@ -85,6 +86,10 @@ class LowLevelGame(BaseTask):
         self._prepare_reward_function()
         self.init_done = True
 
+        print("[LowLevelGame] init agent pos: ", self.root_states[self.agent_indices, :3])
+        print("[LowLevelGame] init robot pos: ", self.root_states[self.robot_indices, :3])
+        print("[LowLevelGame] dist: ", torch.norm(self.root_states[self.agent_indices, :3] - self.root_states[self.robot_indices, :3], dim=-1))
+
     def step(self, actions):
         """ Apply actions, simulate, call self.post_physics_step()
 
@@ -123,9 +128,9 @@ class LowLevelGame(BaseTask):
         self.common_step_counter += 1
 
         # prepare quantities
-        self.base_quat[:] = self.root_states[self.prey_indices, 3:7]
-        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[self.prey_indices, 7:10])
-        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[self.prey_indices, 10:13])
+        self.base_quat[:] = self.root_states[self.robot_indices, 3:7]
+        self.base_lin_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[self.robot_indices, 7:10])
+        self.base_ang_vel[:] = quat_rotate_inverse(self.base_quat, self.root_states[self.robot_indices, 10:13])
         self.projected_gravity[:] = quat_rotate_inverse(self.base_quat, self.gravity_vec)
 
         self._post_physics_step_callback()
@@ -139,7 +144,7 @@ class LowLevelGame(BaseTask):
 
         self.last_actions[:] = self.actions[:]
         self.last_dof_vel[:] = self.dof_vel[:]
-        self.last_root_vel[:] = self.root_states[self.prey_indices, 7:13]
+        self.last_root_vel[:] = self.root_states[self.robot_indices, 7:13]
 
         if self.viewer and self.enable_viewer_sync and self.debug_viz:
             self._draw_debug_vis()
@@ -228,7 +233,7 @@ class LowLevelGame(BaseTask):
                                     ),dim=-1)
         # add perceptive inputs if not blind
         if self.cfg.terrain.measure_heights:
-            heights = torch.clip(self.root_states[self.prey_indices, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
+            heights = torch.clip(self.root_states[self.robot_indices, 2].unsqueeze(1) - 0.5 - self.measured_heights, -1, 1.) * self.obs_scales.height_measurements
             self.obs_buf = torch.cat((self.obs_buf, heights), dim=-1)
         # add noise if needed
         if self.add_noise:
@@ -336,7 +341,9 @@ class LowLevelGame(BaseTask):
         if self.cfg.commands.heading_command:
             forward = quat_apply(self.base_quat, self.forward_vec)
             heading = torch.atan2(forward[:, 1], forward[:, 0])
+            # print("[LowLevelGame: post physics step]: heading cmd: ", self.commands[:, 3])
             self.commands[:, 2] = torch.clip(0.5*wrap_to_pi(self.commands[:, 3] - heading), -1., 1.)
+            # print("[LowLevelGame: post physics step]: angular velocity cmd: ", self.commands[:, 2])
 
         if self.cfg.terrain.measure_heights:
             self.measured_heights = self._get_heights()
@@ -394,12 +401,12 @@ class LowLevelGame(BaseTask):
         self.dof_pos[env_ids] = self.default_dof_pos * torch_rand_float(0.5, 1.5, (len(env_ids), self.num_dof), device=self.device)
         self.dof_vel[env_ids] = 0.
 
-        # Deploy updates for the A1 prey
-        prey_env_ids_int32 = self.prey_indices[env_ids].to(dtype=torch.int32)
+        # Deploy updates for the A1 robot
+        robot_env_ids_int32 = self.robot_indices[env_ids].to(dtype=torch.int32)
         self.gym.set_dof_state_tensor_indexed(self.sim,
                                               gymtorch.unwrap_tensor(self.dof_state),
-                                              gymtorch.unwrap_tensor(prey_env_ids_int32),
-                                              len(prey_env_ids_int32))
+                                              gymtorch.unwrap_tensor(robot_env_ids_int32),
+                                              len(robot_env_ids_int32))
 
     def _reset_root_states(self, env_ids):
         """ Resets ROOT states position and velocities of selected environmments
@@ -408,49 +415,47 @@ class LowLevelGame(BaseTask):
         Args:
             env_ids (List[int]): Environemnt ids
         """
-        # Setup prey info -- base position
+        # Setup robot info -- base position
         if self.custom_origins:
-            self.root_states[self.prey_indices[env_ids]] = self.base_init_state
-            self.root_states[self.prey_indices[env_ids], :3] += self.env_origins[env_ids]
-            self.root_states[self.prey_indices[env_ids], :2] += torch_rand_float(-1., 1., (len(env_ids), 2), device=self.device) # xy position within 1m of the center
+            self.root_states[self.robot_indices[env_ids]] = self.base_init_state
+            self.root_states[self.robot_indices[env_ids], :3] += self.env_origins[env_ids]
+            self.root_states[self.robot_indices[env_ids], :2] += torch_rand_float(-1., 1., (len(env_ids), 2), device=self.device) # xy position within 1m of the center
         else:
-            self.root_states[self.prey_indices[env_ids]] = self.base_init_state
-            self.root_states[self.prey_indices[env_ids], :3] += self.env_origins[env_ids]
-        # Prey info -- base velocities
-        self.root_states[self.prey_indices[env_ids], 7:13] = torch_rand_float(-0.5, 0.5, (len(env_ids), 6), device=self.device) # [7:10]: lin vel, [10:13]: ang vel
+            self.root_states[self.robot_indices[env_ids]] = self.base_init_state
+            self.root_states[self.robot_indices[env_ids], :3] += self.env_origins[env_ids]
 
-        # Reset predator info -- base position (random offset from prey)
-        self.root_states[self.predator_indices[env_ids], :] = self.init_predator_state[env_ids]
-        #self.root_states[self.prey_indices[env_ids], :3] - self.predator_offset[env_ids]
-        # # self.root_states[self.predator_indices[env_ids], 0] += 8.0
-        # # self.root_states[self.predator_indices[env_ids], 1] -= 8.0
-        # self.root_states[self.predator_indices[env_ids], 2] = 0.3
-        #
-        # # Reset predator info -- rotation
-        # init_predator_quat_vec = quat_from_angle_axis(self.init_predator_heading, self.z_unit_tensor)
-        # self.root_states[self.predator_indices[env_ids], 3:7] = init_predator_quat_vec[env_ids, :]
+        # robot info -- base velocities
+        self.root_states[self.robot_indices[env_ids], 7:13] = torch_rand_float(-0.5, 0.5, (len(env_ids), 6), device=self.device) # [7:10]: lin vel, [10:13]: ang vel
 
-        # Reset predator info -- base linear and velocities to zero
-        # self.root_states[self.predator_indices[env_ids], 7:13] = torch.zeros(len(env_ids), 6, dtype=torch.float, device=self.device, requires_grad=False)  # [7:10]: lin vel, [10:13]: ang vel
+        # Reset agent info -- base position (random offset from robot)
+        self.root_states[self.agent_indices[env_ids], :3] = self.root_states[self.robot_indices[env_ids], :3] - self.agent_offset[env_ids, :]
+        self.root_states[self.agent_indices[env_ids], 2] = 0.3
 
-        # Deploy root state updates -- prey
-        prey_env_ids_int32 = self.prey_indices[env_ids].to(dtype=torch.int32)
+        # Reset agent info -- rotation
+        init_agent_quat_vec = quat_from_angle_axis(self.init_agent_heading, self.z_unit_tensor)
+        self.root_states[self.agent_indices[env_ids], 3:7] = init_agent_quat_vec[env_ids, :]
+
+        # Reset agent info -- base linear and velocities to zero
+        self.root_states[self.agent_indices[env_ids], 7:13] = torch.zeros(len(env_ids), 6, dtype=torch.float, device=self.device, requires_grad=False)  # [7:10]: lin vel, [10:13]: ang vel
+
+        # Deploy root state updates -- robot
+        robot_env_ids_int32 = self.robot_indices[env_ids].to(dtype=torch.int32)
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                      gymtorch.unwrap_tensor(self.root_states),
-                                                     gymtorch.unwrap_tensor(prey_env_ids_int32),
-                                                     len(prey_env_ids_int32))
-        # Deploy root state updates -- predator
-        predator_env_ids_int32 = self.predator_indices[env_ids].to(dtype=torch.int32)
+                                                     gymtorch.unwrap_tensor(robot_env_ids_int32),
+                                                     len(robot_env_ids_int32))
+        # Deploy root state updates -- agent
+        agent_env_ids_int32 = self.agent_indices[env_ids].to(dtype=torch.int32)
         self.gym.set_actor_root_state_tensor_indexed(self.sim,
                                                      gymtorch.unwrap_tensor(self.root_states),
-                                                     gymtorch.unwrap_tensor(predator_env_ids_int32),
-                                                     len(predator_env_ids_int32))
+                                                     gymtorch.unwrap_tensor(agent_env_ids_int32),
+                                                     len(agent_env_ids_int32))
 
     def _push_robots(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
         """
         max_vel = self.cfg.domain_rand.max_push_vel_xy
-        self.root_states[self.prey_indices, 7:9] = torch_rand_float(-max_vel, max_vel, (self.num_envs, 2), device=self.device) # lin vel x/y
+        self.root_states[self.robot_indices, 7:9] = torch_rand_float(-max_vel, max_vel, (self.num_envs, 2), device=self.device) # lin vel x/y
         self.gym.set_actor_root_state_tensor(self.sim, gymtorch.unwrap_tensor(self.root_states))
 
     def _update_terrain_curriculum(self, env_ids):
@@ -463,7 +468,7 @@ class LowLevelGame(BaseTask):
         if not self.init_done:
             # don't change on initial reset
             return
-        distance = torch.norm(self.root_states[self.prey_indices[env_ids], :2] - self.env_origins[env_ids, :2], dim=1)
+        distance = torch.norm(self.root_states[self.robot_indices[env_ids], :2] - self.env_origins[env_ids, :2], dim=1)
         # robots that walked far enough progress to harder terains
         move_up = distance > self.terrain.env_length / 2
         # robots that walked less than half of their required distance go to simpler terrains
@@ -529,13 +534,13 @@ class LowLevelGame(BaseTask):
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.dof_pos = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 0]
         self.dof_vel = self.dof_state.view(self.num_envs, self.num_dof, 2)[..., 1]
-        self.base_quat = self.root_states[self.prey_indices, 3:7] # self.root_states[:, 3:7]
+        self.base_quat = self.root_states[self.robot_indices, 3:7] # self.root_states[:, 3:7]
 
         self.contact_forces = gymtorch.wrap_tensor(net_contact_forces).view(self.num_envs, -1, 3) # shape: num_envs, num_bodies, xyz axis
 
         # print("dof_state_tensor.shape: ", dof_state_tensor.shape)
-        # print("self.prey_indices: ", self.prey_indices)
-        # print("self.predator_indices: ", self.predator_indices)
+        # print("self.robot_indices: ", self.robot_indices)
+        # print("self.agent_indices: ", self.agent_indices)
 
         # initialize some data used later on
         self.common_step_counter = 0
@@ -551,13 +556,13 @@ class LowLevelGame(BaseTask):
         self.actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_actions = torch.zeros(self.num_envs, self.num_actions, dtype=torch.float, device=self.device, requires_grad=False)
         self.last_dof_vel = torch.zeros_like(self.dof_vel)
-        self.last_root_vel = torch.zeros_like(self.root_states[self.prey_indices, 7:13])
+        self.last_root_vel = torch.zeros_like(self.root_states[self.robot_indices, 7:13])
         self.commands = torch.zeros(self.num_envs, self.cfg.commands.num_commands, dtype=torch.float, device=self.device, requires_grad=False) # x vel, y vel, yaw vel, heading
         self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin_vel, self.obs_scales.ang_vel], device=self.device, requires_grad=False,) # TODO change this
         self.feet_air_time = torch.zeros(self.num_envs, self.feet_indices.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
         self.last_contacts = torch.zeros(self.num_envs, len(self.feet_indices), dtype=torch.bool, device=self.device, requires_grad=False)
-        self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[self.prey_indices, 7:10])
-        self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[self.prey_indices, 10:13])
+        self.base_lin_vel = quat_rotate_inverse(self.base_quat, self.root_states[self.robot_indices, 7:10])
+        self.base_ang_vel = quat_rotate_inverse(self.base_quat, self.root_states[self.robot_indices, 10:13])
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         if self.cfg.terrain.measure_heights:
             self.height_points = self._init_height_points()
@@ -582,12 +587,12 @@ class LowLevelGame(BaseTask):
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
 
-        self.init_predator_state = self.root_states[self.predator_indices, :]
-        self.init_predator_pos = self.root_states[self.predator_indices, :3]
-        self.init_predator_base_quat = self.root_states[self.predator_indices, 3:7].clone()
-        _, _, self.init_predator_heading = get_euler_xyz(self.init_predator_base_quat)
+        self.init_agent_pos = self.root_states[self.agent_indices, :3]
+        self.init_agent_base_quat = self.root_states[self.agent_indices, 3:7].clone()
+        _, _, self.init_agent_heading = get_euler_xyz(self.init_agent_base_quat)
+        self.init_agent_heading = wrap_to_pi(self.init_agent_heading)
 
-        print("[LowLevelGame] self.init_predator_heading: ", self.init_predator_heading)
+        print("[LowLevelGame] self.init_agent_heading: ", self.init_agent_heading)
 
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
@@ -668,7 +673,7 @@ class LowLevelGame(BaseTask):
                 2.3 create actor with these properties and add them to the env
              3. Store indices of different bodies of the robot
         """
-        # define robot (prey) asset
+        # define robot (robot) asset
         asset_path = self.cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
         asset_root = os.path.dirname(asset_path)
         asset_file = os.path.basename(asset_path)
@@ -690,10 +695,10 @@ class LowLevelGame(BaseTask):
         asset_options.disable_gravity = self.cfg.asset.disable_gravity
         robot_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
-        # load predator asset
-        predator_asset_root = "/home/abajcsy/Downloads/isaacgym/assets"
-        predator_asset_file = "urdf/objects/cube_goal_multicolor_big.urdf"
-        predator_asset = self.gym.load_asset(self.sim, predator_asset_root, predator_asset_file)
+        # load agent asset
+        agent_asset_root = "/home/abajcsy/Downloads/isaacgym/assets"
+        agent_asset_file = "urdf/objects/cube_goal_multicolor_big.urdf"
+        agent_asset = self.gym.load_asset(self.sim, agent_asset_root, agent_asset_file)
 
         # Get the number of robot dofs and rigid bodies
         self.num_dof = self.gym.get_asset_dof_count(robot_asset)
@@ -726,40 +731,42 @@ class LowLevelGame(BaseTask):
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*self.base_init_state[:3])
 
-        # Define start pose for predator cube
-        predator_init_state_list = self.cfg.init_state.predator_pos + \
-                               self.cfg.init_state.predator_rot + \
-                               self.cfg.init_state.predator_lin_vel + \
-                               self.cfg.init_state.predator_ang_vel
-        predator_init = to_torch(predator_init_state_list, device=self.device, requires_grad=False)
-        predator_start_pose = gymapi.Transform()
-        predator_start_pose.p = gymapi.Vec3(*predator_init[:3])
+        # Define start pose for agent cube
+        agent_init_state_list = self.cfg.init_state.agent_pos + \
+                               self.cfg.init_state.agent_rot + \
+                               self.cfg.init_state.agent_lin_vel + \
+                               self.cfg.init_state.agent_ang_vel
+        agent_init = to_torch(agent_init_state_list, device=self.device, requires_grad=False)
+        agent_start_pose = gymapi.Transform()
+        agent_start_pose.p = gymapi.Vec3(*agent_init[:3])
 
-        # the predator is initialized at a random (xyz) offset from the prey
-        rand_offset = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False).uniform_(1.0, 10.0)
+        # the agent is initialized at a random (xyz) offset from the robot
+        rand_offset = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False).uniform_(1.0, 3.0)
         rand_sign = torch.rand(rand_offset.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
         rand_sign[rand_sign < 0.5] = -1
         rand_sign[rand_sign >= 0.5] = 1
         rand_sign = rand_sign.unsqueeze(1)
-        self.predator_offset = rand_sign * rand_offset
+        self.agent_offset = rand_sign * rand_offset
+
+        print("[LowLevelGame] agent_offset: ", self.agent_offset)
 
         self._get_env_origins()
         env_lower = gymapi.Vec3(0., 0., 0.)
         env_upper = gymapi.Vec3(0., 0., 0.)
 
         self.actor_handles = []
-        self.predator_handles = []
+        self.agent_handles = []
         self.envs = []
 
-        # store indices of predator and prey actors
-        self.prey_indices = []
-        self.predator_indices = []
+        # store indices of agent and robot actors
+        self.robot_indices = []
+        self.agent_indices = []
 
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 1     # + 1 for sphere predator
-        max_agg_shapes = num_robot_shapes + 1     # + 1 for sphere predator
+        max_agg_bodies = num_robot_bodies + 1     # + 1 for sphere agent
+        max_agg_shapes = num_robot_shapes + 1     # + 1 for sphere agent
 
         for i in range(self.num_envs):
             # create env instance
@@ -769,12 +776,12 @@ class LowLevelGame(BaseTask):
             if self.aggregate_mode >= 1:
                 self.gym.begin_aggregate(env_handle, max_agg_bodies, max_agg_shapes, True)
 
-            # Potentially randomize start pose of the A1 prey
-            prey_pos = self.env_origins[i].clone()
-            prey_pos[:2] += torch_rand_float(-1., 1., (2,1), device=self.device).squeeze(1)
-            start_pose.p = gymapi.Vec3(*prey_pos)
+            # Potentially randomize start pose of the A1 robot
+            robot_pos = self.env_origins[i].clone()
+            robot_pos[:2] += torch_rand_float(-1., 1., (2,1), device=self.device).squeeze(1)
+            start_pose.p = gymapi.Vec3(*robot_pos)
 
-            # Create the A1 prey
+            # Create the A1 robot
             rigid_shape_props = self._process_rigid_shape_props(rigid_shape_props_asset, i)
             self.gym.set_asset_rigid_shape_properties(robot_asset, rigid_shape_props)
             actor_handle = self.gym.create_actor(env_handle, robot_asset, start_pose, self.cfg.asset.name,
@@ -788,21 +795,21 @@ class LowLevelGame(BaseTask):
 
             self.gym.set_actor_rigid_body_properties(env_handle, actor_handle, body_props, recomputeInertia=True)
 
-            # Store the indicies of the A1 prey
-            prey_idx = self.gym.get_actor_index(env_handle, actor_handle, gymapi.DOMAIN_SIM)
-            self.prey_indices.append(prey_idx)
+            # Store the indicies of the A1 robot
+            robot_idx = self.gym.get_actor_index(env_handle, actor_handle, gymapi.DOMAIN_SIM)
+            self.robot_indices.append(robot_idx)
 
-            # Create the predator actor; start predator at a fixed offset from the prey
-            pred_pos = prey_pos - self.predator_offset[i, :]
-            pred_pos[2] = predator_init[2]
-            predator_start_pose.p = gymapi.Vec3(*pred_pos)
-            predator_actor_handle = self.gym.create_actor(env_handle, predator_asset, predator_start_pose, "predator",
+            # Create the agent actor; start agent at a fixed offset from the robot
+            agent_pos = robot_pos - self.agent_offset[i, :]
+            agent_pos[2] = agent_init[2]
+            agent_start_pose.p = gymapi.Vec3(*agent_pos)
+            agent_actor_handle = self.gym.create_actor(env_handle, agent_asset, agent_start_pose, "agent",
                                                           i, 1, 0)
 
-            # Store the predator indicies and handles
-            predator_idx = self.gym.get_actor_index(env_handle, predator_actor_handle, gymapi.DOMAIN_SIM)
-            self.predator_indices.append(predator_idx)
-            self.predator_handles.append(predator_actor_handle)
+            # Store the agent indicies and handles
+            agent_idx = self.gym.get_actor_index(env_handle, agent_actor_handle, gymapi.DOMAIN_SIM)
+            self.agent_indices.append(agent_idx)
+            self.agent_handles.append(agent_actor_handle)
             # ============================ #
 
             if self.aggregate_mode > 0:
@@ -813,10 +820,10 @@ class LowLevelGame(BaseTask):
             self.actor_handles.append(actor_handle)
 
         # Convert indicies to torch vectors
-        self.prey_indices = to_torch(self.prey_indices, dtype=torch.long, device=self.device)
-        self.predator_indices = to_torch(self.predator_indices, dtype=torch.long, device=self.device)
+        self.robot_indices = to_torch(self.robot_indices, dtype=torch.long, device=self.device)
+        self.agent_indices = to_torch(self.agent_indices, dtype=torch.long, device=self.device)
 
-        # Get the indicies of the A1 prey robot's feet, contacts, etc.
+        # Get the indicies of the A1 robot robot's feet, contacts, etc.
         self.feet_indices = torch.zeros(len(feet_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(feet_names)):
             self.feet_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], feet_names[i])
@@ -879,7 +886,7 @@ class LowLevelGame(BaseTask):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         sphere_geom = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
         for i in range(self.num_envs):
-            base_pos = (self.root_states[self.prey_indices[i], :3]).cpu().numpy() #(self.root_states[i, :3]).cpu().numpy()
+            base_pos = (self.root_states[self.robot_indices[i], :3]).cpu().numpy() #(self.root_states[i, :3]).cpu().numpy()
             heights = self.measured_heights[i].cpu().numpy()
             height_points = quat_apply_yaw(self.base_quat[i].repeat(heights.shape[0]), self.height_points[i]).cpu().numpy()
             for j in range(heights.shape[0]):
@@ -924,9 +931,9 @@ class LowLevelGame(BaseTask):
             raise NameError("Can't measure height with terrain mesh type 'none'")
 
         if env_ids:
-            points = quat_apply_yaw(self.base_quat[env_ids].repeat(1, self.num_height_points), self.height_points[env_ids]) + (self.root_states[self.prey_indices[env_ids], :3]).unsqueeze(1)
+            points = quat_apply_yaw(self.base_quat[env_ids].repeat(1, self.num_height_points), self.height_points[env_ids]) + (self.root_states[self.robot_indices[env_ids], :3]).unsqueeze(1)
         else:
-            points = quat_apply_yaw(self.base_quat.repeat(1, self.num_height_points), self.height_points) + (self.root_states[self.prey_indices, :3]).unsqueeze(1)
+            points = quat_apply_yaw(self.base_quat.repeat(1, self.num_height_points), self.height_points) + (self.root_states[self.robot_indices, :3]).unsqueeze(1)
 
         points += self.terrain.cfg.border_size
         points = (points/self.terrain.cfg.horizontal_scale).long()
@@ -958,7 +965,7 @@ class LowLevelGame(BaseTask):
 
     def _reward_base_height(self):
         # Penalize base height away from target
-        base_height = torch.mean(self.root_states[self.prey_indices, 2].unsqueeze(1) - self.measured_heights, dim=1)
+        base_height = torch.mean(self.root_states[self.robot_indices, 2].unsqueeze(1) - self.measured_heights, dim=1)
         return torch.square(base_height - self.cfg.rewards.base_height_target)
     
     def _reward_torques(self):

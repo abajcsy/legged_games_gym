@@ -139,9 +139,9 @@ def get_dec_load_path(root, agent_id, load_run=-1, checkpoint=-1):
         load_run = os.path.join(root, load_run)
 
     if agent_id == 0:
-        agent_name = "pred"
+        agent_name = "agent"
     else:
-        agent_name = "prey"
+        agent_name = "robot"
 
     if checkpoint==-1:
         full_name = agent_name + "_model_"
