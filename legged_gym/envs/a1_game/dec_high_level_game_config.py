@@ -8,12 +8,12 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
-        num_observations_robot = 3      # ROBOT
+        num_observations_robot = 5      # ROBOT
         num_observations_agent = 5      # AGENT (CUBE)
         # num_observations_agent = 36 # 24
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
-        num_actions_robot = 4         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw, heading) = 4
+        num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 3     # other agent (vx, vy, omega) = 3
         env_spacing = 3.        # not used with heightfields/trimeshes
         send_timeouts = False    # send time out information to the algorithm
@@ -79,14 +79,15 @@ class DecHighLevelGameCfg( BaseConfig ):
         only_positive_rewards = False
         class scales:
             pursuit = -1.0
-            termination = 50.0
-            robot_ctrl = 0.
+            termination = 0.0
+            robot_ctrl = -0.
+            facing_agent = 0.
 
     class rewards_agent: # CUBE!
         only_positive_rewards = False
         class scales:
-            pursuit = -1.0
-            termination = 10.0
+            evasion = 1.0
+            termination = -100.0
 
     # class normalization:
     #     class obs_scales:
@@ -160,7 +161,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 1000           # number of policy updates per agent
+        max_iterations = 1500           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging

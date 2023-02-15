@@ -428,7 +428,7 @@ class LowLevelGame(BaseTask):
         self.root_states[self.robot_indices[env_ids], 7:13] = torch_rand_float(-0.5, 0.5, (len(env_ids), 6), device=self.device) # [7:10]: lin vel, [10:13]: ang vel
 
         # Reset agent info -- base position (random offset from robot)
-        self.root_states[self.agent_indices[env_ids], :3] = self.root_states[self.robot_indices[env_ids], :3] - self.agent_offset[env_ids, :]
+        self.root_states[self.agent_indices[env_ids], :3] = self.root_states[self.robot_indices[env_ids], :3] + self.agent_offset_xyz[env_ids, :]
         self.root_states[self.agent_indices[env_ids], 2] = 0.3
 
         # Reset agent info -- rotation
@@ -741,14 +741,21 @@ class LowLevelGame(BaseTask):
         agent_start_pose.p = gymapi.Vec3(*agent_init[:3])
 
         # the agent is initialized at a random (xyz) offset from the robot
-        rand_offset = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False).uniform_(1.0, 3.0)
-        rand_sign = torch.rand(rand_offset.shape[0], dtype=torch.float, device=self.device, requires_grad=False)
-        rand_sign[rand_sign < 0.5] = -1
-        rand_sign[rand_sign >= 0.5] = 1
-        rand_sign = rand_sign.unsqueeze(1)
-        self.agent_offset = rand_sign * rand_offset
+        min_ang = -np.pi
+        max_ang = np.pi
+        min_rad = 2.0
+        max_rad = 6.0
+        rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
+        rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_rad, max_rad)
+        self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(rand_angle),
+                                           rand_radius * torch.sin(rand_angle),
+                                           torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)), dim=-1)
+        # TODO: HACK!
+        # self.agent_offset_xyz[:, 0] = 3
+        # self.agent_offset_xyz[:, 1] = 0
+        # self.agent_offset_xyz[:, 2] = 0
 
-        print("[LowLevelGame] agent_offset: ", self.agent_offset)
+        print("[LowLevelGame] agent_offset_xyz: ", self.agent_offset_xyz)
 
         self._get_env_origins()
         env_lower = gymapi.Vec3(0., 0., 0.)
@@ -800,7 +807,7 @@ class LowLevelGame(BaseTask):
             self.robot_indices.append(robot_idx)
 
             # Create the agent actor; start agent at a fixed offset from the robot
-            agent_pos = robot_pos - self.agent_offset[i, :]
+            agent_pos = robot_pos + self.agent_offset_xyz[i, :]
             agent_pos[2] = agent_init[2]
             agent_start_pose.p = gymapi.Vec3(*agent_pos)
             agent_actor_handle = self.gym.create_actor(env_handle, agent_asset, agent_start_pose, "agent",
