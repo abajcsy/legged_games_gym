@@ -8,13 +8,13 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
-        num_observations_robot = 7 #36      # ROBOT
+        num_observations_robot = 28         # ROBOT
         num_observations_agent = 5          # AGENT (CUBE)
-        num_obs_encoded_robot = 4           # how many of the observations are encoded?
+        num_obs_encoded_robot = 16          # how many of the observations are encoded?
         num_obs_encoded_agent = 4
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
-        embedding_sz_robot = 2
+        embedding_sz_robot = 8
         embedding_sz_agent = 2
         num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 3     # other agent (vx, vy, omega) = 3
@@ -165,7 +165,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCriticGames' #'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 2000           # number of policy updates per agent
+        max_iterations = 2500           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
