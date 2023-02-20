@@ -744,7 +744,7 @@ class LowLevelGame(BaseTask):
         min_ang = -np.pi
         max_ang = np.pi
         min_rad = 2.0
-        max_rad = 6.0
+        max_rad = 7.0
         rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
         rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_rad, max_rad)
         self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(rand_angle),
