@@ -43,6 +43,8 @@ import torch
 from torch import Tensor
 from typing import Tuple, Dict
 
+import matplotlib.pyplot as plt
+
 from legged_gym import LEGGED_GYM_ROOT_DIR
 from legged_gym.envs.base.base_task import BaseTask
 from legged_gym.utils.terrain import Terrain
@@ -428,7 +430,7 @@ class LowLevelGame(BaseTask):
         self.root_states[self.robot_indices[env_ids], 7:13] = torch_rand_float(-0.5, 0.5, (len(env_ids), 6), device=self.device) # [7:10]: lin vel, [10:13]: ang vel
 
         # Reset agent info -- base position (random offset from robot)
-        self.root_states[self.agent_indices[env_ids], :3] = self.root_states[self.robot_indices[env_ids], :3] + self.agent_offset_xyz[env_ids, :]
+        self.root_states[self.agent_indices[env_ids], :3] = self.root_states[self.robot_indices[env_ids], :3] + self.agent_offset_xyz[env_ids, :3]
         self.root_states[self.agent_indices[env_ids], 2] = 0.3
 
         # Reset agent info -- rotation
@@ -450,6 +452,13 @@ class LowLevelGame(BaseTask):
                                                      gymtorch.unwrap_tensor(self.root_states),
                                                      gymtorch.unwrap_tensor(agent_env_ids_int32),
                                                      len(agent_env_ids_int32))
+
+        ##########
+        # plt.scatter(self.root_states[self.agent_indices[env_ids], 0].tolist(), self.root_states[self.agent_indices[env_ids], 1].tolist(), c=self.colors)
+        # for eid in env_ids: 
+        #     plt.arrow(self.root_states[self.robot_indices[eid], 0].tolist(), self.root_states[self.robot_indices[eid], 1].tolist(), 0.5, 0, head_width=0.5, color=self.colors[eid])
+        # plt.show()
+        ##########
 
     def _push_robots(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
@@ -750,6 +759,16 @@ class LowLevelGame(BaseTask):
         self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(rand_angle),
                                            rand_radius * torch.sin(rand_angle),
                                            torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)), dim=-1)
+
+        # import matplotlib.pyplot as plt
+        # plt.scatter(self.agent_offset_xyz[:, 0].tolist(), self.agent_offset_xyz[:, 1].tolist())
+        # plt.arrow(self.cfg.init_state.pos[0], self.cfg.init_state.pos[1], 0.5, 0, head_width=0.5)
+        # plt.xlim([-7, 7])
+        # plt.ylim([-7, 7])
+        # plt.show()
+        # import pdb;
+        # pdb.set_trace()
+
         # TODO: HACK!
         # self.agent_offset_xyz[:, 0] = 3
         # self.agent_offset_xyz[:, 1] = 0
@@ -774,6 +793,13 @@ class LowLevelGame(BaseTask):
         num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
         max_agg_bodies = num_robot_bodies + 1     # + 1 for sphere agent
         max_agg_shapes = num_robot_shapes + 1     # + 1 for sphere agent
+
+        #######
+        # plt.figure()
+        # number_of_colors = self.num_envs
+        # self.colors = ["#"+''.join([random.choice('0123456789ABCDEF') for j in range(6)])
+        #      for i in range(number_of_colors)]
+        #######
 
         for i in range(self.num_envs):
             # create env instance
@@ -812,6 +838,10 @@ class LowLevelGame(BaseTask):
             agent_start_pose.p = gymapi.Vec3(*agent_pos)
             agent_actor_handle = self.gym.create_actor(env_handle, agent_asset, agent_start_pose, "agent",
                                                           i, 1, 0)
+            #########
+            # plt.scatter(agent_pos[0].tolist(), agent_pos[1].tolist(), c=self.colors[i])
+            # plt.arrow(robot_pos[0].tolist(), robot_pos[1].tolist(), 0.5, 0, head_width=0.5, color=self.colors[i])
+            ##########
 
             # Store the agent indicies and handles
             agent_idx = self.gym.get_actor_index(env_handle, agent_actor_handle, gymapi.DOMAIN_SIM)
@@ -825,6 +855,10 @@ class LowLevelGame(BaseTask):
             # Store the created env pointers
             self.envs.append(env_handle)
             self.actor_handles.append(actor_handle)
+
+        #######
+        # plt.show()
+        #######
 
         # Convert indicies to torch vectors
         self.robot_indices = to_torch(self.robot_indices, dtype=torch.long, device=self.device)

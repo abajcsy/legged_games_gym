@@ -165,11 +165,11 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCriticGames' #'ActorCritic'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 3000           # number of policy updates per agent
+        max_iterations = 3601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
-        save_interval = 5  # check for potential saves every this many iterations
+        save_interval = 200  # check for potential saves every this many iterations
         experiment_name = 'test'
         run_name = ''
         # load and resume
