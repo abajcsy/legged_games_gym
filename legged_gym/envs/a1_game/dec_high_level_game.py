@@ -59,6 +59,9 @@ class DecHighLevelGame():
         self.capture_dist = self.cfg.env.capture_dist
         self.MAX_REL_POS = 100.
 
+        # setup sensing params about robot
+        self.robot_full_fov = self.cfg.env.robot_full_fov
+
         # env device is GPU only if sim is on GPU and use_gpu_pipeline=True, otherwise returned tensors are copied to CPU by physX.
         if sim_device_type == 'cuda' and sim_params.use_gpu_pipeline:
             self.device = self.sim_device
@@ -153,9 +156,8 @@ class DecHighLevelGame():
         torch._C._jit_set_profiling_executor(False)
 
         # *SIMPLER* PARTIAL obs space: setup the indicies of relevant observation quantities
-        # self.pos_idxs_robot = list(range(0,8)) # all relative position history
-        # self.ang_global_idxs_robot = list(range(8,16)) # all relative (global) angle
-        # self.visible_idxs_robot = list(range(16,20))  # all visible bools
+        # self.pos_idxs_robot = list(range(0,12)) # all relative position history
+        # self.visible_idxs_robot = list(range(12,16))  # all visible bools
 
         # PARTIAL obs space: setup the indicies of relevant observation quantities
         # self.pos_idxs_robot = list(range(0,12)) # all relative position history
@@ -660,11 +662,13 @@ class DecHighLevelGame():
     def compute_observations_robot(self, command_robot):
         """ Computes observations of the robot robot
         """
-        # self.compute_observations_pos_robot()
-        # self.compute_observations_pos_angle_robot()
-        # self.compute_observations_full_obs_robot()
-        # self.compute_observations_limited_FOV_robot()
-        self.compute_observations_KF_robot(command_robot, partial_obs=True)
+
+        # self.compute_observations_pos_robot()             # OBS: (x_rel)
+        # self.compute_observations_pos_angle_robot()       # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel))
+        # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
+        # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
+        # self.compute_observations_state_hist_robot(partial_obs=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
+        self.compute_observations_KF_robot(command_robot, partial_obs=True)   # OBS: (hat{x}_rel, hat{P})
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
@@ -745,9 +749,7 @@ class DecHighLevelGame():
         rel_yaw_global = wrap_to_pi(rel_yaw_global)
 
         if partial_obs is True:
-            # full_fov = 4.71 # 270 degrees
-            full_fov = 1.20428 # 64 degrees, RealSense
-            half_fov = full_fov /2.
+            half_fov = self.robot_full_fov /2.
 
             # find environments where robot is visible
             fov_bool = torch.any(torch.abs(rel_yaw_global) <= half_fov, dim=1)
@@ -815,6 +817,35 @@ class DecHighLevelGame():
             self.data_save_tstep += 1
         # ------------------------------------------------------------------- # 
 
+    def compute_observations_state_hist_robot(self, partial_obs=False):
+        """ Computes observations of the robot with a state history (instead of estimator)
+                    obs_buf is laid out as:
+
+                   [s^t, s^t-1, s^t-2, s^t-3,
+                    v^t, v^t-1, v^t-2, v^t-3]
+
+                   where s^i = (px^i, py^i, pz^i) is the relative position (of size 3) at timestep i
+                         v^i = is "visible" boolean which tracks if the agent was visible in FOV (of size 1)
+         """
+        # from agent's POV, get its sensing
+        sense_rel_pos, _, visible_bool = self.robot_sense_agent_simpler(partial_obs=partial_obs)
+
+        old_sense_rel_pos = self.obs_buf_robot[:,
+                            self.pos_idxs_robot[:-3]].clone()  # remove the oldest relative position observation
+        old_visible_bool = self.obs_buf_robot[:,
+                           self.visible_idxs_robot[:-1]].clone()  # remove the corresponding oldest visible bool
+
+        # if robot is visible, then we need to scale; otherwise its an old measurement so no need
+        # obs_pos_scale = 0.1
+        # visible_env_ids = torch.any(visible_bool, dim=1).nonzero(as_tuple=False).flatten()
+        # sense_rel_pos[visible_env_ids, :] *= obs_pos_scale
+
+        # a new observation has the form: (rel_opponent_pos, rel_opponent_heading, detected_bool, visible_bool)
+        self.obs_buf_robot = torch.cat((sense_rel_pos,
+                                        old_sense_rel_pos,
+                                        visible_bool.long(),
+                                        old_visible_bool
+                                        ), dim=-1)
 
     def compute_observations_limited_FOV_robot(self):
         """ Computes observations of the robot with partial observability.
@@ -988,10 +1019,10 @@ class DecHighLevelGame():
         Args:
             partial_obs (bool): true if partial observability, false if otherwise
 
-        Returns: sensing information the POV of the robot. Returns five values:
+        Returns: sensing information the POV of the robot. Returns 3 values:
 
-            sense_rel_pos (torch.Tensor): [num_envs * 2] if is visible, contains the relative agent xy-position;
-                                                if not visible, copies the last relative agent xy-position
+            sense_rel_pos (torch.Tensor): [num_envs * 3] if is visible, contains the relative agent xyz-position;
+                                                if not visible, copies the last relative agent xyz-position
             sense_rel_yaw_global (torch.Tensor): [num_envs * 1] if visible, contains global_yaw
                                                 if not visible, copies the last global yaw
             visible_bool (torch.Tensor): [num_envs * 1] boolean if the agent has is currently visible
@@ -1001,20 +1032,22 @@ class DecHighLevelGame():
                 (DiagFOV)   = 72 degrees
                 (VertFOV)   = 41 degrees
         """
-        half_fov = np.pi #1.20428 / 2.
+        half_fov = self.robot_full_fov /2.
 
-        rel_agent_pos_xy = self.agent_pos[:, :2] - self.robot_states[:, :2]
+        # rel_agent_pos_xy = self.agent_pos[:, :2] - self.robot_states[:, :2]
+        rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
         robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
         _, _, robot_yaw = get_euler_xyz(robot_base_quat)
         robot_yaw = wrap_to_pi(robot_yaw)
 
         # relative yaw between the agent's heading and the robot's heading (global)
-        rel_yaw_global = torch.atan2(rel_agent_pos_xy[:, 1], rel_agent_pos_xy[:, 0]) - robot_yaw
+        rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
         rel_yaw_global = rel_yaw_global.unsqueeze(-1)
         rel_yaw_global = wrap_to_pi(rel_yaw_global)
 
         # pack the final sensing measurements
-        sense_rel_pos_xy = rel_agent_pos_xy.clone()
+        sense_rel_pos_xyz = rel_agent_pos_xyz.clone()
+        # sense_rel_pos_xy = rel_agent_pos_xy.clone()
         sense_rel_yaw_global = torch.cat((torch.cos(rel_yaw_global), torch.sin(rel_yaw_global)), dim=-1)
 
         # find environments where robot is visible
@@ -1028,8 +1061,9 @@ class DecHighLevelGame():
 
         if partial_obs:
             # if we didn't sense the robot now, copy over the agent's previous sensed position as our new "measurement"
-            sense_rel_pos_xy[hidden_env_ids, :] = self.obs_buf_robot[hidden_env_ids][:, self.pos_idxs_robot[:2]].clone()
-            sense_rel_yaw_global[hidden_env_ids, :] = self.obs_buf_robot[hidden_env_ids][:, self.ang_global_idxs_robot[:2]].clone()
+            sense_rel_pos_xyz[hidden_env_ids, :] = self.obs_buf_robot[hidden_env_ids][:, self.pos_idxs_robot[:3]].clone()
+            # sense_rel_pos_xy[hidden_env_ids, :] = self.obs_buf_robot[hidden_env_ids][:, self.pos_idxs_robot[:2]].clone()
+            # sense_rel_yaw_global[hidden_env_ids, :] = self.obs_buf_robot[hidden_env_ids][:, self.ang_global_idxs_robot[:2]].clone()
 
         # print("===================================")
         # print("agent_pos: ", self.agent_pos[:, :3])
@@ -1041,7 +1075,7 @@ class DecHighLevelGame():
         # print("visible_bool: ", visible_bool)
         # print("===================================")
 
-        return sense_rel_pos_xy, sense_rel_yaw_global, visible_bool
+        return sense_rel_pos_xyz, None, visible_bool
 
 
     def robot_sense_agent(self, partial_obs):
@@ -1065,7 +1099,7 @@ class DecHighLevelGame():
                 (DiagFOV)   = 72 degrees
                 (VertFOV)   = 41 degrees
         """
-        half_fov = np.pi #1.20428 / 2.
+        half_fov = self.robot_full_fov /2.
 
         rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
         robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]

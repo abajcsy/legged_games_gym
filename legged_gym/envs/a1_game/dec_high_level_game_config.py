@@ -8,9 +8,12 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
-        num_observations_robot = 12 #3 #12 #24 #28         # ROBOT
+        # num_observations_robot = 3      # GT observations: (x_rel)
+        num_observations_robot = 12     # KF observations: (xhat_rel, Phat)
+        # num_observations_robot = 16     # Raw hist observations: 4-steps x_rel history + visible bools
+        # num_observations_robot = 12 #24 #28         # ROBOT
         num_observations_agent = 5          # AGENT (CUBE)
-        num_obs_encoded_robot = None #12 #16          # how many of the observations are encoded?
+        num_obs_encoded_robot = None        # how many of the observations are encoded?
         num_obs_encoded_agent = None #4
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
@@ -22,6 +25,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         send_timeouts = False    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
         capture_dist = 0.8      # if the two agents are closer than this dist, they are captured
+        robot_full_fov = 1.20428 # 64 degrees, RealSense; 4.71 # 270 degrees
 
     class terrain:
         mesh_type = 'plane' # 'trimesh'
@@ -86,7 +90,7 @@ class DecHighLevelGameCfg( BaseConfig ):
             pursuit = -1.0
             facing_agent = 0.0
             path_progress = 0.0
-            termination = 10.0
+            termination = 0.0
 
     class rewards_agent: # CUBE!
         only_positive_rewards = False
