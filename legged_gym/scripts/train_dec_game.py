@@ -32,20 +32,22 @@ import numpy as np
 import os
 from datetime import datetime
 
-import isaacgym
+# import isaacgym
 from legged_gym.envs import *
 from legged_gym.utils import get_args, task_registry
-import torch
+# import torch
 
 def train(args):
-    print("[train_game] making the high-level environment")
+    print("[train_dec_game] making the high-level environment")
     env, env_cfg = task_registry.make_env(name=args.task, args=args)
-    print("[train_game] making the algorithm runner...")
+    print("[train_dec_game] making the algorithm runner...")
     ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args)
-    print("[train_game] starting the PPO runner...")
+    print("[train_dec_game] starting the PPO runner...")
     init_at_random_ep_len = False
     ppo_runner.learn(max_num_evolutions=train_cfg.runner.max_evolutions, num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=init_at_random_ep_len)
 
 if __name__ == '__main__':
+    print("[train_dec_game] getting args...")
     args = get_args()
+    print("[train_dec_game] starting training setup..")
     train(args)

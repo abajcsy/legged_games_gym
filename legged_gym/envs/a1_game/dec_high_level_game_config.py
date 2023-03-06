@@ -8,17 +8,17 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
-        num_observations_robot = 24 #28         # ROBOT
+        num_observations_robot = 12 #3 #12 #24 #28         # ROBOT
         num_observations_agent = 5          # AGENT (CUBE)
-        num_obs_encoded_robot = 12 #16          # how many of the observations are encoded?
-        num_obs_encoded_agent = 4
+        num_obs_encoded_robot = None #12 #16          # how many of the observations are encoded?
+        num_obs_encoded_agent = None #4
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
-        embedding_sz_robot = 8
-        embedding_sz_agent = 2
-        num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
+        embedding_sz_robot = None #8
+        embedding_sz_agent = None #2
+        num_actions_robot = 2 #3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 3     # other agent (vx, vy, omega) = 3
-        env_spacing = 3.        # not used with heightfields/trimeshes
+        env_spacing = 3.        # not used with heightfields / trimeshes
         send_timeouts = False    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
         capture_dist = 0.8      # if the two agents are closer than this dist, they are captured
@@ -26,6 +26,8 @@ class DecHighLevelGameCfg( BaseConfig ):
     class terrain:
         mesh_type = 'plane' # 'trimesh'
         curriculum = False
+        # rough terrain only:
+        measure_heights = True
         num_rows= 10 # number of terrain rows (levels)
         num_cols = 20 # number of terrain cols (types)
 
@@ -82,16 +84,17 @@ class DecHighLevelGameCfg( BaseConfig ):
         only_positive_rewards = False
         class scales:
             pursuit = -1.0
-            termination = 0.0
-            robot_ctrl = -0.
             facing_agent = 0.0
+            path_progress = 0.0
+            termination = 10.0
 
     class rewards_agent: # CUBE!
         only_positive_rewards = False
         class scales:
-            evasion = 1.0
-            termination = -100.0
+            evasion = 0.0
+            termination = 0.0
 
+    # THIS IS FOR LOW LEVEL POLICY!
     # class normalization:
     #     class obs_scales:
     #         lin_vel = 2.0
@@ -105,6 +108,13 @@ class DecHighLevelGameCfg( BaseConfig ):
     class noise:
         add_noise = True
         noise_level = 1.0 # scales other values
+        class noise_scales:
+            dof_pos = 0.01
+            dof_vel = 1.5
+            lin_vel = 0.1
+            ang_vel = 0.2
+            gravity = 0.05
+            height_measurements = 0.1
 
     class viewer:
         ref_env = 0
@@ -133,14 +143,15 @@ class DecHighLevelGameCfg( BaseConfig ):
 
 class DecHighLevelGameCfgPPO( BaseConfig ):
     seed = 1
-    runner_class_name = 'OnPolicyRunner'
+    runner_class_name = 'DecGamePolicyRunner' # 'OnPolicyRunner'
 
     class policy:
         init_noise_std = 1.0
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
-        encoder_hidden_dims = [512, 256, 128]
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+        # only for 'ActorCriticGames'
+        # encoder_hidden_dims = [512, 256, 128]
         # only for 'ActorCriticRecurrent':
         # rnn_type = 'lstm'
         # rnn_hidden_size = 512
@@ -162,10 +173,10 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        policy_class_name = 'ActorCriticGames' #'ActorCritic'
+        policy_class_name = 'ActorCritic' # 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 3601           # number of policy updates per agent
+        max_iterations = 801 #8001 #3601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging

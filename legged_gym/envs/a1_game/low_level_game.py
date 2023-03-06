@@ -112,11 +112,15 @@ class LowLevelGame(BaseTask):
         self.post_physics_step()
 
         # return clipped obs, clipped states (None), rewards, dones and infos
+        self._clip_obs()
+        return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
+
+    def _clip_obs(self):
+        """Clips the observations"""
         clip_obs = self.cfg.normalization.clip_observations
         self.obs_buf = torch.clip(self.obs_buf, -clip_obs, clip_obs)
         if self.privileged_obs_buf is not None:
             self.privileged_obs_buf = torch.clip(self.privileged_obs_buf, -clip_obs, clip_obs)
-        return self.obs_buf, self.privileged_obs_buf, self.rew_buf, self.reset_buf, self.extras
 
     def post_physics_step(self):
         """ check terminations, compute observations and rewards
@@ -141,15 +145,23 @@ class LowLevelGame(BaseTask):
         self.check_termination()
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-        self.reset_idx(env_ids)
+
+        # self.reset_idx(env_ids) # TODO: THIS IS A HACK!
+
         self.compute_observations() # in some cases a simulation step might be required to refresh some obs (for example body positions)
 
-        self.last_actions[:] = self.actions[:]
-        self.last_dof_vel[:] = self.dof_vel[:]
-        self.last_root_vel[:] = self.root_states[self.robot_indices, 7:13]
+        # self.last_actions[:] = self.actions[:]
+        # self.last_dof_vel[:] = self.dof_vel[:]
+        # self.last_root_vel[:] = self.root_states[self.robot_indices, 7:13]
+        self._update_last_quantities()
 
         if self.viewer and self.enable_viewer_sync and self.debug_viz:
             self._draw_debug_vis()
+
+    def _update_last_quantities(self):
+        self.last_actions[:] = self.actions[:]
+        self.last_dof_vel[:] = self.dof_vel[:]
+        self.last_root_vel[:] = self.root_states[self.robot_indices, 7:13]
 
     def check_termination(self):
         """ Check if environments need to be reset
@@ -338,13 +350,13 @@ class LowLevelGame(BaseTask):
             Default behaviour: Compute ang vel command based on target and heading, compute measured terrain heights and randomly push robots
         """
         # 
-        env_ids = (self.episode_length_buf % int(self.cfg.commands.resampling_time / self.dt)==0).nonzero(as_tuple=False).flatten()
-        self._resample_commands(env_ids)
-        if self.cfg.commands.heading_command:
-            forward = quat_apply(self.base_quat, self.forward_vec)
-            heading = torch.atan2(forward[:, 1], forward[:, 0])
-            # print("[LowLevelGame: post physics step]: heading cmd: ", self.commands[:, 3])
-            self.commands[:, 2] = torch.clip(0.5*wrap_to_pi(self.commands[:, 3] - heading), -1., 1.)
+        # env_ids = (self.episode_length_buf % int(self.cfg.commands.resampling_time / self.dt)==0).nonzero(as_tuple=False).flatten()
+        # self._resample_commands(env_ids)
+        # if self.cfg.commands.heading_command:
+        #     forward = quat_apply(self.base_quat, self.forward_vec)
+        #     heading = torch.atan2(forward[:, 1], forward[:, 0])
+        #     # print("[LowLevelGame: post physics step]: heading cmd: ", self.commands[:, 3])
+        #     self.commands[:, 2] = torch.clip(0.5*wrap_to_pi(self.commands[:, 3] - heading), -1., 1.)
             # print("[LowLevelGame: post physics step]: angular velocity cmd: ", self.commands[:, 2])
 
         if self.cfg.terrain.measure_heights:
@@ -753,7 +765,7 @@ class LowLevelGame(BaseTask):
         min_ang = -np.pi
         max_ang = np.pi
         min_rad = 2.0
-        max_rad = 7.0
+        max_rad = 6.0
         rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
         rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_rad, max_rad)
         self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(rand_angle),
@@ -770,7 +782,7 @@ class LowLevelGame(BaseTask):
         # pdb.set_trace()
 
         # TODO: HACK!
-        # self.agent_offset_xyz[:, 0] = 3
+        # self.agent_offset_xyz[:, 0] = -6
         # self.agent_offset_xyz[:, 1] = 0
         # self.agent_offset_xyz[:, 2] = 0
 
