@@ -8,10 +8,9 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
-        num_observations_robot = 3      # GT observations: (x_rel)
-        # num_observations_robot = 20     # KF observations: (xhat_rel, Phat)
+        # num_observations_robot = 4      # GT observations: (x_rel, theta)
+        num_observations_robot = 20     # KF observations: (xhat_rel, Phat)
         # num_observations_robot = 16     # Raw hist observations: 4-steps x_rel history + visible bools
-        # num_observations_robot = 12 #24 #28         # ROBOT
         num_observations_agent = 5          # AGENT (CUBE)
         num_obs_encoded_robot = None        # how many of the observations are encoded?
         num_obs_encoded_agent = None #4
@@ -19,13 +18,13 @@ class DecHighLevelGameCfg( BaseConfig ):
         num_privileged_obs_agent = None
         embedding_sz_robot = None #8
         embedding_sz_agent = None #2
-        num_actions_robot = 1         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
+        num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 3     # other agent (vx, vy, omega) = 3
         env_spacing = 3.        # not used with heightfields / trimeshes
         send_timeouts = False    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
         capture_dist = 0.8      # if the two agents are closer than this dist, they are captured
-        robot_full_fov = 1.20428    # 64 degrees, RealSense; 4.71 # 270 degrees
+        robot_full_fov = 1.20428    # 64 degrees, RealSense; For larger FOV use 4.71 which is 270 degrees
 
     class terrain:
         mesh_type = 'plane' # 'trimesh'
@@ -87,8 +86,8 @@ class DecHighLevelGameCfg( BaseConfig ):
     class rewards_robot: # ROBOT!
         only_positive_rewards = False
         class scales:
-            pursuit = -0.0
-            robot_foveation = 5.0
+            pursuit = -1.0
+            robot_foveation = 0.0
             robot_ang_vel = -0.0
             path_progress = 0.0
             termination = 0.0
@@ -151,7 +150,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
     runner_class_name = 'DecGamePolicyRunner' # 'OnPolicyRunner'
 
     class policy:
-        init_noise_std = 1.0
+        init_noise_std = 0.5 #1.0
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
@@ -167,7 +166,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         value_loss_coef = 1.0
         use_clipped_value_loss = True
         clip_param = 0.2
-        entropy_coef = 0.0 #0.01
+        entropy_coef = 0. #0.01
         num_learning_epochs = 5
         num_mini_batches = 4  # mini batch size = num_envs*nsteps / nminibatches
         learning_rate = 1.e-3  # 5.e-4

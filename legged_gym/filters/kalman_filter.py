@@ -11,7 +11,7 @@ from datetime import datetime
 import os
 
 class KalmanFilter(object):
-    def __init__(self, dt, num_states, num_actions, num_envs, device='cpu', dtype=torch.float64):
+    def __init__(self, dt, num_states, num_actions, num_envs, state_type="pos_ang", device='cpu', dtype=torch.float64):
         self.dt = dt
         self.num_states = num_states
         self.num_actions = num_actions
@@ -20,27 +20,31 @@ class KalmanFilter(object):
         self.dtype = dtype
 
         # if state includes the relative angle, e.g.:
-        #   state = (x_rel, y_rel, z_rel, theta_rel)
+        #   state = (x_rel, y_rel, z_rel, dtheta) where dtheta ~= (atan(y_rel, x_rel) - theta_robot)
         #   control = (v_x, v_y, omega)
         # then need to make sure to wrap to pi
+        #
         # options:
         #   pos, pos_ang
-        self.dyn_type = "pos_ang"
+        self.state_type = state_type
 
         # dynamics matricies x' = Ax + Bu + w
         self.A = torch.eye(self.num_states, dtype=self.dtype, device=self.device)
         self.B = -self.dt * torch.eye(self.num_states, self.num_actions, dtype=self.dtype, device=self.device)
-
-        if self.dyn_type == "pos_ang":
-            # need to remap B matrix so 3rd dim (z) is not controlled, but 4th dim (theta) is
-            self.B[2, -1] = 0
-            self.B[-1, -1] = -self.dt
 
         self.H = torch.eye(self.num_states, dtype=self.dtype, device=self.device)          # observation matrix y = Hx + v
         self.Q = 0.01 * torch.eye(self.num_states, dtype=self.dtype, device=self.device)    # process covariance (w ~ N(0,Q))
         self.R = 0.2 * torch.eye(self.num_states, dtype=self.dtype, device=self.device)    # measurement covariance (v ~ N(0,R))
         self.P = torch.eye(self.num_states, dtype=self.dtype, device=self.device)          # a posteriori estimate covariance matrix
         self.I = torch.eye(self.num_states, device=self.device)
+
+        if self.state_type == "pos_ang":
+            # need to remap B matrix so 3rd dim (z) is not controlled, but 4th dim (theta) is
+            self.B[2, -1] = 0
+            self.B[-1, -1] = self.dt
+
+            # adjust the measurement covariance for angular component
+            self.R[-1, -1] = 0.1
 
         # current state estimate
         self.xhat = torch.zeros(self.num_envs, self.num_states, dtype=self.dtype, device=self.device)
@@ -99,7 +103,7 @@ class KalmanFilter(object):
         Bu = torch.bmm(self.B_tensor, command_robot.unsqueeze(-1)).squeeze(-1)
         xnext = Ax + Bu
 
-        if self.dyn_type == "pos_ang":
+        if self.state_type == "pos_ang":
             # need to wrap the final state to [-pi,pi]
             xnext[:, -1] = self._wrap_to_pi(xnext[:, -1])
 
@@ -159,7 +163,7 @@ class KalmanFilter(object):
         #   xhat = xhat + K * y
         self.xhat[env_ids, :] = self.xhat[env_ids, :] + torch.bmm(K[env_ids, :], y[env_ids, :].unsqueeze(-1)).squeeze(-1)
 
-        if self.dyn_type == "pos_ang":
+        if self.state_type == "pos_ang":
             # need to wrap the angular component of state estimate to [-pi,pi]
             self.xhat[env_ids, -1] = self._wrap_to_pi(self.xhat[env_ids, -1])
 
@@ -186,23 +190,40 @@ class KalmanFilter(object):
         if xreal.dtype != self.dtype:
             xreal = xreal.to(self.dtype)
 
-        # torchify everything
-        v_tensor = self.normal_dist.rsample()
+        zero_mean = np.zeros((self.num_envs, self.num_states))
+        v_tensor = self.sample_batch_mvn(zero_mean, self.R_tensor.cpu().numpy(), self.num_envs)
 
-        # if we have an angular component to state, sample it separately
-        if self.dyn_type == "pos_ang":
-            # TODO: this is kind of a hack...
-            rand_angs = torch.empty(self.num_envs, 1, device=self.device, requires_grad=False)
-            std_ang = self.R[-1,-1]
-            torch.nn.init.trunc_normal_(rand_angs, mean=0., std=std_ang, a=-np.pi, b=np.pi)
-            v_tensor = torch.cat((v_tensor[:, 0:self.num_states-1],
-                                  rand_angs),
-                                 dim=-1)
+        if self.state_type == "pos_ang":
+            # if we have an angular component to state, sample it separately
+            v_tensor[:, -1] = self._wrap_to_pi(v_tensor[:, -1])
 
         # use y = Hx + v to simulate measurement
         Hx = torch.bmm(self.H_tensor, xreal.unsqueeze(-1)).squeeze(-1)
         z = Hx + v_tensor
+
+        if self.state_type == "pos_ang":
+            z[:, -1] = self._wrap_to_pi(z[:, -1])
+
         return z
+
+    def sample_batch_mvn(self, mean, cov, batch_size) -> np.ndarray:
+        """
+        Batch sample multivariate normal distribution.
+
+        Arguments:
+
+            mean (np.ndarray): expected values of shape (B, D)
+            cov (np.ndarray): covariance matrices of shape (B, D, D)
+            batch_size (int): additional batch shape (B)
+
+        Returns: torch.Tensor or shape: (B, D)
+                 with one samples from the multivariate normal distributions
+        """
+        L = np.linalg.cholesky(cov)
+        X = np.random.standard_normal((batch_size, mean.shape[-1], 1))
+        Y = (L @ X).reshape(batch_size, mean.shape[-1]) + mean
+        Y_tensor = torch.tensor(Y, dtype=self.dtype, device=self.device, requires_grad=False)
+        return Y_tensor
 
     def _wrap_to_pi(self, angles):
         angles %= 2 * np.pi
@@ -231,7 +252,7 @@ class KalmanFilter(object):
         gr_cmap = mpl.colormaps['Greens']
         rd_cmap = mpl.colormaps['Reds']
         gy_cmap = mpl.colormaps['Greys']
-        if self.dyn_type == "pos":
+        if self.state_type == "pos":
             for eidx in range(self.num_envs):
                 # plot measurements
                 plt.scatter(z_traj[:,eidx,0], z_traj[:,eidx,1], c=colors_z, cmap='Greens', label="measurements")
@@ -244,7 +265,7 @@ class KalmanFilter(object):
                 plt.scatter(real_traj[:,eidx,0], real_traj[:,eidx,1], c=colors_r, cmap='Greys', label="real state")
                 # plot initial state explicitly
                 plt.scatter(real_traj[0,eidx,0], real_traj[0,eidx,1], c=colors_r[0], edgecolors='k', cmap='Greys')
-        elif self.dyn_type == "pos_ang":
+        elif self.state_type == "pos_ang":
             for eidx in range(self.num_envs):
                 # plot measurements
                 z_dx = np.cos(z_traj[:, eidx, -1])
@@ -271,8 +292,8 @@ class KalmanFilter(object):
         plt.scatter(0, 0, c='m', edgecolors='k', marker=",", s=100)
         # plot relative heading needed for the robot to face the prey:
         # since theta_a == 0, then the optimal theta_rel = 0 - atan(rel_y, rel_x)
-        target_rel_yaw = - np.arctan2(real_traj[0, eidx, 1], real_traj[0, eidx, 0])
-        plt.quiver(0, 0, np.cos(target_rel_yaw), np.sin(target_rel_yaw), color='m')
+        # target_rel_yaw = - np.arctan2(real_traj[0, eidx, 1], real_traj[0, eidx, 0])
+        # plt.quiver(0, 0, np.cos(target_rel_yaw), np.sin(target_rel_yaw), color='m')
 
         # plt.ylim([-5, 5])
         # plt.xlim([-5, 5])
@@ -310,15 +331,15 @@ class KalmanFilter(object):
         # Initializing the random seed
         random_seed = 1000
 
-        # Setting mean of the distributino to
+        # Setting mean of the distribution to
         # be at (0,0)
-        mean = np.array([0, 0])
+        mean = np.zeros(self.num_states)
 
         for env_id in range(P_traj.shape[1]):
-            for tidx in range(0, num_tsteps, 15):
+            for tidx in range(0, num_tsteps, 20):
                 # Generating a Gaussian bivariate distribution
                 # with given mean and covariance matrix
-                distr = multivariate_normal(cov=P_traj[tidx,env_id,0,0], mean=mean,
+                distr = multivariate_normal(cov=P_traj[tidx,env_id,:,:], mean=mean,
                                             seed=random_seed)
 
                 # Generating samples out of the distribution
@@ -326,9 +347,18 @@ class KalmanFilter(object):
 
                 # Plotting the generated samples
                 xhat = est_traj[tidx, env_id, :]
+                e_dx = np.cos(xhat[-1])
+                e_dy = np.sin(xhat[-1])
                 plt.scatter(xhat[0] + data[:, 0], xhat[1] + data[:, 1], color=[1-colors[tidx], 0, colors[tidx]], alpha=0.1)
+                plt.quiver(xhat[0] + data[:, 0], xhat[1] + data[:, 1], e_dx, e_dy, color=[1-colors[tidx], 0, colors[tidx]], alpha=0.1)
 
-            plt.scatter(est_traj[:, env_id, 0], est_traj[:, env_id, 1], c='k', s=70)
+                # plt.scatter(est_traj[tidx, env_id, 0], est_traj[tidx, env_id, 1], c='k', s=70, alpha=0.5)
+                # plt.quiver(est_traj[tidx, env_id, 0], est_traj[tidx, env_id, 1], e_dx, e_dy, color='k', alpha=0.5)
+
+            e_dx = np.cos(est_traj[:, env_id, -1])
+            e_dy = np.sin(est_traj[:, env_id, -1])
+            plt.scatter(est_traj[:, env_id, 0], est_traj[:, env_id, 1], c='k', s=70, alpha=0.5)
+            plt.quiver(est_traj[:, env_id, 0], est_traj[:, env_id, 1], e_dx, e_dy, color='k', alpha=0.5)
             plt.scatter(est_traj[0, env_id, 0], est_traj[0, env_id, 1], c='w', facecolor='w', edgecolors='k', s=70)
 
         # plot the origin (i.e., the goal of the controller)
@@ -353,56 +383,62 @@ class KalmanFilter(object):
 
     def _turn_and_pursue_command_robot(self, rel_state):
         command_robot = torch.zeros(self.num_envs, self.num_actions, device=self.device, requires_grad=False)
-        rel_yaw = torch.atan2(rel_state[:, 1], rel_state[:, 0]) + rel_state[:, -1] # TODO: this is a hack!
-        rel_yaw = self._wrap_to_pi(rel_yaw)
+        # rel_yaw = torch.atan2(rel_state[:, 1], rel_state[:, 0]) + rel_state[:, -1] # TODO: this is a hack!
+        # rel_yaw = self._wrap_to_pi(rel_yaw)
         # import pdb; pdb.set_trace()
-        print("rel state: ", rel_state)
-        print("rel yaw: ", rel_yaw)
+        print("rel state: ", rel_state[:, :-1])
+        print("dtheta: ", rel_state[:, -1])
         eps = 0.15
         for env_idx in range(self.num_envs):
-            if torch.abs(rel_yaw[env_idx]) < eps:
+            if torch.abs(rel_state[env_idx, -1]) < eps:
                 print("GOING STRAIGHT..")
-                command_robot[env_idx, :2] = torch.clip(rel_state[:, :2], min=-1, max=1)
+                command_robot[env_idx, :2] = torch.clip(rel_state[env_idx, :2], min=-1, max=1)
             else:
                 print("TURNING..")
-                command_robot[env_idx, 2] = 1 # just turn
+                command_robot[env_idx, 2] = 1 #torch.clip(rel_state[env_idx, -1],  min=-1, max=1) # just turn
         return command_robot
 
-if __name__ == '__main__':
+def sim_robot_and_kf():
     dt = 0.02
     num_states = 4
     num_actions = 3
-    num_envs = 1 #4
-    min_lin_vel = -1 
+    num_envs = 1  # 2
+    min_lin_vel = -1
     max_lin_vel = 1
     min_ang_vel = -1
     max_ang_vel = 1
+    state_type = "pos_ang"
     device = 'cpu'
     dtype = torch.float
 
     # define the real system
     max_s = 7
     t = np.arange(0, max_s, dt)
-    print("Simulating for ", max_s, " seconds..." )
+    print("Simulating for ", max_s, " seconds...")
 
     xa0 = torch.zeros(num_envs, num_states, dtype=dtype, device=device)
     xa0[0, 0] = 0
     xa0[0, 1] = 0
     xa0[0, 3] = 0
+    # xa0[1, 0] = 1
+    # xa0[1, 1] = 1
+    # xa0[1, 3] = 0
     xr0 = torch.zeros(num_envs, num_states, dtype=dtype, device=device)
     xr0[0, 0] = 3
     xr0[0, 1] = 2
-    xr0[0, 3] = np.pi/2
+    xr0[0, 3] = np.pi / 2
     # xr0[1, 0] = -3
     # xr0[1, 1] = -2
-    # xr0[2, 0] = 3
-    # xr0[2, 1] = -3
-    # xr0[3, 0] = -3
-    # xr0[3, 1] = 3
-    xrel0 = xa0 - xr0
+    # xr0[1, 3] = np.pi/4
 
     # define the kalman filter and set init state
-    kf = KalmanFilter(dt, num_states, num_actions, num_envs, device, dtype)
+    kf = KalmanFilter(dt, num_states, num_actions, num_envs, state_type, device, dtype)
+
+    # setup the dtheta state
+    xrel0 = xa0 - xr0
+    xrel0[:, -1] = torch.atan2(xrel0[:, 1], xrel0[:, 0]) - xr0[:, -1]  # fourth state is dtheta
+    xrel0[:, -1] = kf._wrap_to_pi(xrel0[:, -1])
+
     xhat0 = kf.sim_measurement(xrel0)
     all_env_ids = torch.arange(kf.num_envs, device=device)
     # xhat0[:, 0] = -2
@@ -432,7 +468,7 @@ if __name__ == '__main__':
         pred_traj = np.append(pred_traj, [xhat.numpy()], axis=0)
 
         # get a measurement
-        if tidx % 1 == 0:
+        if tidx % 20 == 0:
             print("got measurement, doing corrective update...")
             x = real_traj[tidx, :]
             z = kf.sim_measurement(torch.tensor(x, dtype=torch.float64))
@@ -447,7 +483,11 @@ if __name__ == '__main__':
 
     print("Plotting state traj...")
     kf._plot_state_traj(real_traj, z_traj, pred_traj, est_traj)
-    # print("Plotting covariance matrix traj...")
-    # kf._plot_state_cov_mat(P_traj, est_traj)
+    print("Plotting covariance matrix traj...")
+    kf._plot_state_cov_mat(P_traj, est_traj)
     print("Computing MSE...")
     kf._compute_mse(real_traj, pred_traj, est_traj)
+
+
+if __name__ == '__main__':
+    sim_robot_and_kf()

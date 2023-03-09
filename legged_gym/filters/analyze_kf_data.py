@@ -8,8 +8,16 @@ if __name__ == '__main__':
 	# bla = 'kf_data_03_03_2023-17-13-18_200.pickle'
 	# bla = 'kf_data_03_03_2023-17-13-14_100.pickle'
 	# bla = 'kf_data_06_03_2023-09-57-44_100.pickle'
-	bla = 'kf_data_06_03_2023-10-28-17_400.pickle' # +1.5
+	# bla = 'kf_data_06_03_2023-10-28-17_400.pickle' # +1.5
 	# bla = 'kf_data_06_03_2023-10-20-42_300.pickle'  # -1.5
+
+	# bla = 'kf_data_09_03_2023-11-22-56_200.pickle' # 600 iter policy
+	# bla = 'kf_data_09_03_2023-11-22-31_100.pickle'  # 200 iter policy
+
+	bla = 'kf_data_09_03_2023-12-52-13_300.pickle'
+
+	# bla = 'kf_data_09_03_2023-11-12-58_100.pickle'
+
 	filename = path + '/data/' + bla #kf_data_27_02_2023-17-18-12_200.pickle'
 	with open(filename, "rb") as f:
 		data_dict = pickle.load(f)
@@ -25,6 +33,7 @@ if __name__ == '__main__':
 	print("shape of est_traj: ", est_traj.shape)
 	print("shape of z_traj: ", z_traj.shape)
 	print("shape of P_traj: ", P_traj.shape)
+
 	kf._plot_state_traj(real_traj, z_traj, pred_traj, est_traj)
-	kf._plot_state_cov_mat(P_traj, est_traj, env_id=0)
+	kf._plot_state_cov_mat(P_traj, est_traj)
 
