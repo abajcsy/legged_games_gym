@@ -1,10 +1,12 @@
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import torch
 from torch.distributions.multivariate_normal import MultivariateNormal
 from scipy.stats import multivariate_normal
 import pdb
+
 from datetime import datetime
 import os
 
@@ -17,9 +19,22 @@ class KalmanFilter(object):
         self.device = device
         self.dtype = dtype
 
+        # if state includes the relative angle, e.g.:
+        #   state = (x_rel, y_rel, z_rel, theta_rel)
+        #   control = (v_x, v_y, omega)
+        # then need to make sure to wrap to pi
+        # options:
+        #   pos, pos_ang
+        self.dyn_type = "pos_ang"
+
         # dynamics matricies x' = Ax + Bu + w
         self.A = torch.eye(self.num_states, dtype=self.dtype, device=self.device)
         self.B = -self.dt * torch.eye(self.num_states, self.num_actions, dtype=self.dtype, device=self.device)
+
+        if self.dyn_type == "pos_ang":
+            # need to remap B matrix so 3rd dim (z) is not controlled, but 4th dim (theta) is
+            self.B[2, -1] = 0
+            self.B[-1, -1] = -self.dt
 
         self.H = torch.eye(self.num_states, dtype=self.dtype, device=self.device)          # observation matrix y = Hx + v
         self.Q = 0.01 * torch.eye(self.num_states, dtype=self.dtype, device=self.device)    # process covariance (w ~ N(0,Q))
@@ -83,6 +98,11 @@ class KalmanFilter(object):
         Ax = torch.bmm(self.A_tensor, x.unsqueeze(-1)).squeeze(-1)
         Bu = torch.bmm(self.B_tensor, command_robot.unsqueeze(-1)).squeeze(-1)
         xnext = Ax + Bu
+
+        if self.dyn_type == "pos_ang":
+            # need to wrap the final state to [-pi,pi]
+            xnext[:, -1] = self._wrap_to_pi(xnext[:, -1])
+
         return xnext
 
     def predict(self, command_robot):
@@ -139,6 +159,10 @@ class KalmanFilter(object):
         #   xhat = xhat + K * y
         self.xhat[env_ids, :] = self.xhat[env_ids, :] + torch.bmm(K[env_ids, :], y[env_ids, :].unsqueeze(-1)).squeeze(-1)
 
+        if self.dyn_type == "pos_ang":
+            # need to wrap the angular component of state estimate to [-pi,pi]
+            self.xhat[env_ids, -1] = self._wrap_to_pi(self.xhat[env_ids, -1])
+
         # Get a posteriori estimate covariance
         #   P = (I - K * H) * Phat
         self.P_tensor[env_ids, :] = torch.bmm(self.I_tensor[env_ids, :] -
@@ -165,10 +189,25 @@ class KalmanFilter(object):
         # torchify everything
         v_tensor = self.normal_dist.rsample()
 
+        # if we have an angular component to state, sample it separately
+        if self.dyn_type == "pos_ang":
+            # TODO: this is kind of a hack...
+            rand_angs = torch.empty(self.num_envs, 1, device=self.device, requires_grad=False)
+            std_ang = self.R[-1,-1]
+            torch.nn.init.trunc_normal_(rand_angs, mean=0., std=std_ang, a=-np.pi, b=np.pi)
+            v_tensor = torch.cat((v_tensor[:, 0:self.num_states-1],
+                                  rand_angs),
+                                 dim=-1)
+
         # use y = Hx + v to simulate measurement
         Hx = torch.bmm(self.H_tensor, xreal.unsqueeze(-1)).squeeze(-1)
         z = Hx + v_tensor
         return z
+
+    def _wrap_to_pi(self, angles):
+        angles %= 2 * np.pi
+        angles -= 2 * np.pi * (angles > np.pi)
+        return angles
 
     def _plot_state_traj(self, real_traj, z_traj, pred_traj, est_traj):
         """
@@ -188,22 +227,52 @@ class KalmanFilter(object):
         colors_e = np.linspace(0, 1, len(est_traj[:, 0, 0]))
         if pred_traj is not None:
             colors_p = np.linspace(0, 1, len(pred_traj[:, 0, 0]))
-        
-        for eidx in range(self.num_envs):
-            # plot measurements
-            plt.scatter(z_traj[:,eidx,0], z_traj[:,eidx,1], c=colors_z, cmap='Greens', label="measurements")
-            if pred_traj is not None:
-                # plot predicted state trajectory (a priori)
-                plt.scatter(pred_traj[:,eidx,0], pred_traj[:,eidx,1], c=colors_p, cmap='Blues', label="preds")
-            # plot estimated state trajectory (a posteriori)
-            plt.scatter(est_traj[:,eidx,0], est_traj[:,eidx,1], c=colors_e, cmap='Reds', label="estimates")
-            # plot GT state trajectory
-            plt.scatter(real_traj[:,eidx,0], real_traj[:,eidx,1], c=colors_r, cmap='Greys', label="real state")
-            # plot initial state explicitly
-            plt.scatter(real_traj[0,eidx,0], real_traj[0,eidx,1], c=colors_r[0], edgecolors='k', cmap='Greys')
+
+        gr_cmap = mpl.colormaps['Greens']
+        rd_cmap = mpl.colormaps['Reds']
+        gy_cmap = mpl.colormaps['Greys']
+        if self.dyn_type == "pos":
+            for eidx in range(self.num_envs):
+                # plot measurements
+                plt.scatter(z_traj[:,eidx,0], z_traj[:,eidx,1], c=colors_z, cmap='Greens', label="measurements")
+                if pred_traj is not None:
+                    # plot predicted state trajectory (a priori)
+                    plt.scatter(pred_traj[:,eidx,0], pred_traj[:,eidx,1], c=colors_p, cmap='Blues', label="preds")
+                # plot estimated state trajectory (a posteriori)
+                plt.scatter(est_traj[:,eidx,0], est_traj[:,eidx,1], c=colors_e, cmap='Reds', label="estimates")
+                # plot GT state trajectory
+                plt.scatter(real_traj[:,eidx,0], real_traj[:,eidx,1], c=colors_r, cmap='Greys', label="real state")
+                # plot initial state explicitly
+                plt.scatter(real_traj[0,eidx,0], real_traj[0,eidx,1], c=colors_r[0], edgecolors='k', cmap='Greys')
+        elif self.dyn_type == "pos_ang":
+            for eidx in range(self.num_envs):
+                # plot measurements
+                z_dx = np.cos(z_traj[:, eidx, -1])
+                z_dy = np.sin(z_traj[:, eidx, -1])
+                e_dx = np.cos(est_traj[:, eidx, -1])
+                e_dy = np.sin(est_traj[:, eidx, -1])
+                r_dx = np.cos(real_traj[:, eidx, -1])
+                r_dy = np.sin(real_traj[:, eidx, -1])
+
+                # plot measurements
+                plt.scatter(z_traj[:, eidx, 0], z_traj[:, eidx, 1], c=colors_z, cmap='Greens', label="measurements")
+                plt.quiver(z_traj[:, eidx, 0], z_traj[:, eidx, 1], z_dx, z_dy, color=gr_cmap(colors_z), label="measurements")
+                # plot estimated state trajectory (a posteriori)
+                plt.scatter(est_traj[:, eidx, 0], est_traj[:, eidx, 1], c=colors_e, cmap='Reds', label="estimates")
+                plt.quiver(est_traj[:, eidx, 0], est_traj[:, eidx, 1], e_dx, e_dy, color=rd_cmap(colors_e),label="estimates")
+                # plot GT state trajectory
+                # import pdb; pdb.set_trace()
+                plt.scatter(real_traj[:, eidx, 0], real_traj[:, eidx, 1], c=colors_r, cmap='Greys', label="real state")
+                plt.quiver(real_traj[:, eidx, 0], real_traj[:, eidx, 1], r_dx, r_dy, color=gy_cmap(colors_r), label="real state")
+                # plot initial state explicitly
+                plt.scatter(real_traj[0, eidx, 0], real_traj[0, eidx, 1], c=colors_r[0], edgecolors='k', cmap='Greys')
         
         # plot the origin (i.e., the goal of the controller)
         plt.scatter(0, 0, c='m', edgecolors='k', marker=",", s=100)
+        # plot relative heading needed for the robot to face the prey:
+        # since theta_a == 0, then the optimal theta_rel = 0 - atan(rel_y, rel_x)
+        target_rel_yaw = - np.arctan2(real_traj[0, eidx, 1], real_traj[0, eidx, 0])
+        plt.quiver(0, 0, np.cos(target_rel_yaw), np.sin(target_rel_yaw), color='m')
 
         # plt.ylim([-5, 5])
         # plt.xlim([-5, 5])
@@ -224,10 +293,10 @@ class KalmanFilter(object):
         now = datetime.now()
         dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
         path = os.path.dirname(os.path.abspath(__file__))
-        plt.savefig(path + '/imgs/' + 'kalman_filter'+dt_string+'.png')
-        # plt.show()
+        # plt.savefig(path + '/imgs/' + 'kalman_filter'+dt_string+'.png')
+        plt.show()
 
-    def _plot_state_cov_mat(self, P_traj, est_traj, env_id):
+    def _plot_state_cov_mat(self, P_traj, est_traj):
         """
         Plots state covariance matrix P over time. 
         Args:
@@ -266,9 +335,9 @@ class KalmanFilter(object):
         plt.scatter(0, 0, c='m', edgecolors='k', marker=",", s=100)
 
         plt.title('State Estimate Covariance (P)')
-        # plt.show()
+        plt.show()
         path = os.path.dirname(os.path.abspath(__file__))
-        plt.savefig(path + '/imgs/' + 'kalman_filter_P_mat.png')
+        # plt.savefig(path + '/imgs/' + 'kalman_filter_P_mat.png')
 
 
     def _compute_mse(self, xrel_traj, pred_traj, est_traj):
@@ -282,25 +351,48 @@ class KalmanFilter(object):
             print("ENV ", eidx, " | MSE[real - est] (x):",  mse_est[0], "(y): ", mse_est[1], "(z): ", mse_est[2])
             print("ENV ", eidx, " | MSE[real - pred] (x):",  mse_pred[0], "(y): ", mse_pred[1], "(z): ", mse_pred[2])
 
+    def _turn_and_pursue_command_robot(self, rel_state):
+        command_robot = torch.zeros(self.num_envs, self.num_actions, device=self.device, requires_grad=False)
+        rel_yaw = torch.atan2(rel_state[:, 1], rel_state[:, 0]) + rel_state[:, -1] # TODO: this is a hack!
+        rel_yaw = self._wrap_to_pi(rel_yaw)
+        # import pdb; pdb.set_trace()
+        print("rel state: ", rel_state)
+        print("rel yaw: ", rel_yaw)
+        eps = 0.15
+        for env_idx in range(self.num_envs):
+            if torch.abs(rel_yaw[env_idx]) < eps:
+                print("GOING STRAIGHT..")
+                command_robot[env_idx, :2] = torch.clip(rel_state[:, :2], min=-1, max=1)
+            else:
+                print("TURNING..")
+                command_robot[env_idx, 2] = 1 # just turn
+        return command_robot
+
 if __name__ == '__main__':
     dt = 0.02
-    num_states = 3
-    num_actions = 2
+    num_states = 4
+    num_actions = 3
     num_envs = 1 #4
     min_lin_vel = -1 
     max_lin_vel = 1
+    min_ang_vel = -1
+    max_ang_vel = 1
     device = 'cpu'
     dtype = torch.float
 
     # define the real system
-    max_s = 4
+    max_s = 7
     t = np.arange(0, max_s, dt)
     print("Simulating for ", max_s, " seconds..." )
 
-    xa0 = torch.ones(num_envs, num_states, dtype=dtype, device=device)
-    xr0 = torch.ones(num_envs, num_states, dtype=dtype, device=device)
+    xa0 = torch.zeros(num_envs, num_states, dtype=dtype, device=device)
+    xa0[0, 0] = 0
+    xa0[0, 1] = 0
+    xa0[0, 3] = 0
+    xr0 = torch.zeros(num_envs, num_states, dtype=dtype, device=device)
     xr0[0, 0] = 3
     xr0[0, 1] = 2
+    xr0[0, 3] = np.pi/2
     # xr0[1, 0] = -3
     # xr0[1, 1] = -2
     # xr0[2, 0] = 3
@@ -312,16 +404,18 @@ if __name__ == '__main__':
     # define the kalman filter and set init state
     kf = KalmanFilter(dt, num_states, num_actions, num_envs, device, dtype)
     xhat0 = kf.sim_measurement(xrel0)
-    xhat0[:, 0] = -2
-    xhat0[:, 1] = -2
-    xhat0[:, 2] = 0
-    kf.set_init_xhat(xhat0)
+    all_env_ids = torch.arange(kf.num_envs, device=device)
+    # xhat0[:, 0] = -2
+    # xhat0[:, 1] = -2
+    # xhat0[:, 2] = 0
+    kf.reset_xhat(all_env_ids, xhat0)
 
     # create the fake ground-truth data
     xrel = xrel0
     real_traj = np.array([xrel.numpy()])
     for tidx in range(len(t)):
-        action = torch.clip(xrel[:, :2], min=min_lin_vel, max=max_lin_vel)
+        action = kf._turn_and_pursue_command_robot(xrel)
+        # action = torch.clip(xrel[:, :2], min=min_lin_vel, max=max_lin_vel)
         xrel = kf.dynamics(xrel, action)
         real_traj = np.append(real_traj, [xrel.numpy()], axis=0)
 
@@ -332,12 +426,13 @@ if __name__ == '__main__':
     P_traj = np.array([kf.P_tensor.numpy()])
     for tidx in range(len(t)):
         print("predicting...")
-        action = torch.clip(kf.xhat[:, :2], min=min_lin_vel, max=max_lin_vel)
+        action = kf._turn_and_pursue_command_robot(kf.xhat)
+        # action = torch.clip(kf.xhat[:, :2], min=min_lin_vel, max=max_lin_vel)
         xhat = kf.predict(action)
         pred_traj = np.append(pred_traj, [xhat.numpy()], axis=0)
-    
+
         # get a measurement
-        if tidx % 20 == 0:
+        if tidx % 1 == 0:
             print("got measurement, doing corrective update...")
             x = real_traj[tidx, :]
             z = kf.sim_measurement(torch.tensor(x, dtype=torch.float64))
@@ -345,14 +440,14 @@ if __name__ == '__main__':
                 z_traj = np.array([z.numpy()])
             else:
                 z_traj = np.append(z_traj, [z.numpy()], axis=0)
-            kf.correct(z)
+            kf.correct(z, all_env_ids)
 
         est_traj = np.append(est_traj, [kf.xhat.numpy()], axis=0)
         P_traj = np.append(P_traj, [kf.P_tensor.numpy()], axis=0)
 
     print("Plotting state traj...")
     kf._plot_state_traj(real_traj, z_traj, pred_traj, est_traj)
-    print("Plotting covariance matrix traj...")
-    kf._plot_state_cov_mat(P_traj, 0)
+    # print("Plotting covariance matrix traj...")
+    # kf._plot_state_cov_mat(P_traj, est_traj)
     print("Computing MSE...")
     kf._compute_mse(real_traj, pred_traj, est_traj)

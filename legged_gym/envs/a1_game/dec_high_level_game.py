@@ -173,8 +173,10 @@ class DecHighLevelGame():
         # self.visible_idxs_robot = list(range(6,7))  # all visible bools
 
         # KALMAN FILTER obs space
-        self.pos_idxs_robot = list(range(0,3))
-        self.cov_idxs_robot = list(range(3,12))
+        # self.pos_idxs_robot = list(range(0,4))
+        # self.cov_idxs_robot = list(range(4,20))
+
+        self.pos_idxs_robot = list(range(0, 3))
 
         # allocate robot buffers
         # self.obs_buf_robot = self.MAX_REL_POS * torch.ones(self.num_envs, self.num_obs_robot, device=self.device, dtype=torch.float)
@@ -236,8 +238,8 @@ class DecHighLevelGame():
         self.z_traj = None
         self.est_traj = None
         self.P_traj = None 
-        self.num_states_kf = 3
-        self.num_actions_kf = 2
+        self.num_states_kf = 4
+        self.num_actions_kf = 3
         self.filter_dt = self.ll_env.dt # we get measurements slower than sim: filter_dt = decimation * sim.dt
         self.kf = KalmanFilter(self.filter_dt, 
                                 self.num_states_kf, 
@@ -250,18 +252,22 @@ class DecHighLevelGame():
         self.data_save_tstep = 0
         self.data_save_interval = 50
 
-        # reward debugging
-        self.r_start = None
-        self.r_goal = None
-        self.r_curr = None
-        self.r_curr_proj = None
-        self.r_last = None
-        self.r_last_proj = None
-
-        # reward debugging saving info
+        # Reward debugging saving info
         self.save_rew_data = False
         self.rew_debug_tstep = 0
         self.rew_debug_interval = 100
+
+        # Reward debugging
+        self.fov_reward = None
+        self.fov_rel_yaw = None
+        # self.command_robot_ang_vel = None
+        self.ll_env_command_ang_vel = None
+        # self.r_start = None
+        # self.r_goal = None
+        # self.r_curr = None
+        # self.r_curr_proj = None
+        # self.r_last = None
+        # self.r_last_proj = None
 
         print("[DecHighLevelGame] initializing buffers...")
         self._init_buffers()
@@ -289,24 +295,28 @@ class DecHighLevelGame():
         """
         # TODO: HACK!! This is for debugging.
         command_agent *= 0
+
+        # rel_yaw = self.get_rel_yaw_global_robot()
+        robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
+        _, _, robot_yaw = get_euler_xyz(robot_base_quat)
+        robot_yaw = wrap_to_pi(robot_yaw)
+
+        ang_error = wrap_to_pi(command_robot[:, 0] - robot_yaw)
+
         command_robot_3d = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
-        command_robot_3d[:, 0] = command_robot[:, 0]
-        command_robot_3d[:, 1] = command_robot[:, 1]
+        command_robot_3d[:, 2] = 0.7 * ang_error.squeeze(-1)
         # command_robot = self._straight_line_command_augmented_robot(command_robot)
         # command_robot = self._straight_line_command_robot(command_robot)
         # command_robot = self._turn_and_pursue_command_robot(command_robot)
         # TODO: HACK!! This is for debugging.
 
+        # print("[RAW] command robot: ", command_robot)
+
         # clip the robot and agent's commands
-        command_robot_3d = self.clip_command_robot(command_robot_3d)
+        # command_robot = self.clip_command_robot(command_robot)
         command_agent = self.clip_command_agent(command_agent)
 
-        # TODO: HACK!! This is for debugging.
-        # opt_command_robot_3d = rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        # opt_command_robot_3d = self.clip_command_robot(opt_command_robot_3d)
-        # print("2D [Optimal] Robot Command: ", opt_command_robot_3d[:, :2])
-        # print("2D [Clipped, Learned] Robot Command: ", command_robot_3d[:, :2])
-        # TODO: HACK!! This is for debugging.
+        # print("[CLIPPED] command robot: ", command_robot)
 
         # NOTE: low-level policy requires 4D control
         # update the low-level simulator command since it deals with the robot
@@ -348,6 +358,7 @@ class DecHighLevelGame():
         command_robot[:, :2] += command_robot_1d
 
         return command_robot
+
     def _straight_line_command_robot(self, command_robot):
         rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
         command_robot[:, 0] = torch.clip(rel_agent_pos_xyz[:, 0], min=self.command_ranges["lin_vel_x"][0],
@@ -567,7 +578,9 @@ class DecHighLevelGame():
 
         # reset the kalman filter
         rel_pos = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        xhat0 = self.kf.sim_measurement(rel_pos)
+        rel_yaw_global = self.get_rel_yaw_global_robot()
+        rel_state = torch.cat((rel_pos, rel_yaw_global), dim=-1)
+        xhat0 = self.kf.sim_measurement(rel_state)
         self.kf.reset_xhat(env_ids, xhat_val=xhat0[env_ids, :])
         # TODO: reset kalman filter bookkeeping buffers too!
 
@@ -605,6 +618,25 @@ class DecHighLevelGame():
             self.ll_env.measured_heights = self.ll_env._get_heights() # TODO: need to do this for the observation buffer to match in size!
         obs_agent, obs_robot, privileged_obs_agent, privileged_obs_robot, _, _, _, _ = self.step(actions_agent, actions_robot)
         return obs_agent, obs_robot, privileged_obs_agent, privileged_obs_robot
+
+
+    def get_rel_yaw_global_robot(self):
+        """Returns relative angle between the robot's local yaw angle and
+        the angle between the robot's base and the agent's base:
+            i.e., angle_btw_bases - robot_yaw
+        """
+        # from robot's POV, get its sensing
+        rel_pos = self.agent_pos[:, :3] - self.robot_states[:, :3]
+
+        # get relative yaw between the agent's heading and the robot's heading (global)
+        robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
+        _, _, robot_yaw = get_euler_xyz(robot_base_quat)
+        robot_yaw = wrap_to_pi(robot_yaw)
+
+        rel_yaw_global = torch.atan2(rel_pos[:, 1], rel_pos[:, 0]) - robot_yaw
+        rel_yaw_global = rel_yaw_global.unsqueeze(-1)
+        rel_yaw_global = wrap_to_pi(rel_yaw_global)
+        return rel_yaw_global
 
     def compute_reward_robot(self, ll_rews):
         """ Compute rewards for the robot
@@ -663,12 +695,12 @@ class DecHighLevelGame():
         """ Computes observations of the robot robot
         """
 
-        # self.compute_observations_pos_robot()             # OBS: (x_rel)
+        self.compute_observations_pos_robot()             # OBS: (x_rel)
         # self.compute_observations_pos_angle_robot()       # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel))
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(partial_obs=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
-        self.compute_observations_KF_robot(command_robot, partial_obs=True)   # OBS: (hat{x}_rel, hat{P})
+        # self.compute_observations_KF_robot(command_robot, partial_obs=False)   # OBS: (hat{x}_rel, hat{P})
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
@@ -684,13 +716,15 @@ class DecHighLevelGame():
         """
         # from robot's POV, get the relative position to the agent
         rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
-        _, _, robot_yaw = get_euler_xyz(robot_base_quat)
-        robot_yaw = wrap_to_pi(robot_yaw)
+        # robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
+        # _, _, robot_yaw = get_euler_xyz(robot_base_quat)
+        # robot_yaw = wrap_to_pi(robot_yaw)
+        #
+        # rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
+        # rel_yaw_global = rel_yaw_global.unsqueeze(-1)
+        # rel_yaw_global = wrap_to_pi(rel_yaw_global)
 
-        rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
-        rel_yaw_global = rel_yaw_global.unsqueeze(-1)
-        rel_yaw_global = wrap_to_pi(rel_yaw_global)
+        rel_yaw_global = self.get_rel_yaw_global_robot()
 
         # print("num positive angs: ", len((rel_yaw_global > 0).nonzero()))
         # print("num neg angs: ", len((rel_yaw_global <= 0).nonzero()))
@@ -739,14 +773,16 @@ class DecHighLevelGame():
         actions_kf = command_robot[:, :self.num_actions_kf] 
         rel_pos_a_priori = self.kf.predict(actions_kf)
 
-        # relative yaw between the agent's heading and the robot's heading (global)
-        robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
-        _, _, robot_yaw = get_euler_xyz(robot_base_quat)
-        robot_yaw = wrap_to_pi(robot_yaw)
+        # get relative yaw between the agent's heading and the robot's heading (global)
+        # robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
+        # _, _, robot_yaw = get_euler_xyz(robot_base_quat)
+        # robot_yaw = wrap_to_pi(robot_yaw)
+        #
+        # rel_yaw_global = torch.atan2(rel_pos[:, 1], rel_pos[:, 0]) - robot_yaw
+        # rel_yaw_global = rel_yaw_global.unsqueeze(-1)
+        # rel_yaw_global = wrap_to_pi(rel_yaw_global)
 
-        rel_yaw_global = torch.atan2(rel_pos[:, 1], rel_pos[:, 0]) - robot_yaw
-        rel_yaw_global = rel_yaw_global.unsqueeze(-1)
-        rel_yaw_global = wrap_to_pi(rel_yaw_global)
+        rel_yaw_global = self.get_rel_yaw_global_robot()
 
         if partial_obs is True:
             half_fov = self.robot_full_fov /2.
@@ -759,7 +795,9 @@ class DecHighLevelGame():
             visible_env_ids = torch.arange(self.num_envs, device=self.device)
 
         # simulate getting a noisy measurement
-        z = self.kf.sim_measurement(rel_pos)
+        rel_yaw_global = self.get_rel_yaw_global_robot()
+        rel_state = torch.cat((rel_pos, rel_yaw_global), dim=-1)
+        z = self.kf.sim_measurement(rel_state)
         # perform Kalman update to only environments that can get measurements
         self.kf.correct(z, env_ids=visible_env_ids)
 
@@ -1036,14 +1074,16 @@ class DecHighLevelGame():
 
         # rel_agent_pos_xy = self.agent_pos[:, :2] - self.robot_states[:, :2]
         rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
-        _, _, robot_yaw = get_euler_xyz(robot_base_quat)
-        robot_yaw = wrap_to_pi(robot_yaw)
+        # robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
+        # _, _, robot_yaw = get_euler_xyz(robot_base_quat)
+        # robot_yaw = wrap_to_pi(robot_yaw)
 
         # relative yaw between the agent's heading and the robot's heading (global)
-        rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
-        rel_yaw_global = rel_yaw_global.unsqueeze(-1)
-        rel_yaw_global = wrap_to_pi(rel_yaw_global)
+        # rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
+        # rel_yaw_global = rel_yaw_global.unsqueeze(-1)
+        # rel_yaw_global = wrap_to_pi(rel_yaw_global)
+
+        rel_yaw_global = self.get_rel_yaw_global_robot()
 
         # pack the final sensing measurements
         sense_rel_pos_xyz = rel_agent_pos_xyz.clone()
@@ -1077,7 +1117,6 @@ class DecHighLevelGame():
 
         return sense_rel_pos_xyz, None, visible_bool
 
-
     def robot_sense_agent(self, partial_obs):
         """
         Args:
@@ -1106,10 +1145,11 @@ class DecHighLevelGame():
         _, _, robot_yaw = get_euler_xyz(robot_base_quat)
         robot_yaw = wrap_to_pi(robot_yaw)
 
-        # relative yaw between the agent's heading and the robot's heading (global)
-        rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
-        rel_yaw_global = rel_yaw_global.unsqueeze(-1)
-        rel_yaw_global = wrap_to_pi(rel_yaw_global)
+        # # relative yaw between the two agents (global)
+        # rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
+        # rel_yaw_global = rel_yaw_global.unsqueeze(-1)
+        # rel_yaw_global = wrap_to_pi(rel_yaw_global)
+        rel_yaw_global = self.get_rel_yaw_global_robot()
 
         # relative yaw between the agent's heading and the robot's heading (local)
         # robot_forward = quat_apply_yaw(self.ll_env.base_quat, self.ll_env.forward_vec)
@@ -1354,21 +1394,68 @@ class DecHighLevelGame():
 
     def _reward_pursuit(self):
         """Reward for pursuing"""
-        # print("agent_pos: ", self.agent_pos[:, :2], "   |   ll_env.root_state agent pos: ", self.ll_env.root_states[self.ll_env.agent_indices, :2])
-        # print("robot_state pos: ", self.robot_states[:, :2], "   |   ll_env.root_state robot pos: ", self.ll_env.root_states[self.ll_env.robot_indices, :2])
-        # error = torch.norm(self.agent_pos[:, :2] - self.robot_states[:, :2], p=1, dim=-1)
-        # rew = torch.exp(-error) - 0.8 # L1 norm is better than L2
-
-        # rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        # _, _, robot_yaw = get_euler_xyz(self.ll_env.base_quat)
-        # robot_yaw = wrap_to_pi(robot_yaw)
-        #
-        # rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
-        # rel_yaw_global = wrap_to_pi(rel_yaw_global)
-        #
-        # scale = torch.exp(-torch.abs(rel_yaw_global))
-        # rew = scale * dist
         rew = torch.square(torch.norm(self.agent_pos[:, :2] - self.robot_states[:, :2], p=2, dim=-1))
+        return rew
+
+    def _reward_robot_foveation(self):
+        """Reward for the robot facing the agemt"""
+        rel_yaw_global = self.get_rel_yaw_global_robot()
+        rel_yaw_global = rel_yaw_global.squeeze(-1)
+
+        # Exponential-type reward
+        # rew = torch.exp(-torch.abs(rel_yaw_global))
+
+        # "Relu"-type reward
+        offset = np.pi / 3
+        max_rew_val = 0.9
+
+        slope = 1.0 #0.45
+        diff_left = slope * rel_yaw_global + offset
+        diff_right = slope * rel_yaw_global - offset
+
+        # relu_left = torch.clamp(diff_left, min=0)   # max(0, diff_left)
+        # relu_right = -torch.clamp(diff_right, max=0) # -min(0, diff_right)
+
+        relu_left = diff_left  # max(0, diff_left)
+        relu_right = -diff_right # -min(0, diff_right)
+
+        val = torch.zeros_like(relu_left)
+        val[rel_yaw_global > 0] = relu_right[rel_yaw_global > 0]
+        val[rel_yaw_global <= 0] = relu_left[rel_yaw_global <= 0]
+        rew = torch.clamp(val, max=max_rew_val) # min(min(a,b), max_rew_val)
+
+        # ------------------------------------------------------------------- #
+        # =========================== Book Keeping ========================== #
+        # ------------------------------------------------------------------- #
+        if self.save_rew_data:
+            if self.fov_reward is None:
+                self.fov_reward = rew.unsqueeze(0)
+                self.fov_rel_yaw = rel_yaw_global.unsqueeze(0)
+                self.ll_env_command_ang_vel = self.ll_env.commands[:, 2].unsqueeze(0)
+            else:
+                self.fov_reward = torch.cat((self.fov_reward, rew.unsqueeze(0)), dim=0)
+                self.fov_rel_yaw = torch.cat((self.fov_rel_yaw, rel_yaw_global.unsqueeze(0)), dim=0)
+                self.ll_env_command_ang_vel = torch.cat((self.ll_env_command_ang_vel, self.ll_env.commands[:, 2].unsqueeze(0)), dim=0)
+
+            if self.rew_debug_tstep % self.rew_debug_interval == 0:
+                print("[Foveation] Saving reward debugging information at ", self.rew_debug_tstep, "...")
+                now = datetime.now()
+                dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
+                filename = "foveation_rew_debug_" + dt_string + "_" + str(self.rew_debug_tstep) + ".pickle"
+                data_dict = {"fov_reward": self.fov_reward.cpu().numpy(),
+                             "fov_rel_yaw": self.fov_rel_yaw.cpu().numpy(),
+                             "ll_env_command_ang_vel": self.ll_env_command_ang_vel.cpu().numpy()}
+                with open(filename, 'wb') as handle:
+                    pickle.dump(data_dict, handle)
+
+            self.rew_debug_tstep += 1
+
+        # print("foveation reward:", rew)
+        return rew
+
+    def _reward_robot_ang_vel(self):
+        """Reward for the robot's angular velocity"""
+        rew = torch.norm(self.ll_env.commands[:, 2], p=2, dim=-1)
         return rew
 
     def _reward_path_progress(self):
@@ -1382,65 +1469,39 @@ class DecHighLevelGame():
         curr_progress_to_agent = self.proj_state_to_path(curr_robot_pos, robot_start_pos, robot_goal_pos)
         last_progress_to_agent = self.proj_state_to_path(self.last_robot_pos, robot_start_pos, robot_goal_pos)
 
-        # print("===================================")
-        # print("robot_start_pos: ", robot_start_pos)
-        # print("robot_goal_pos: ", robot_goal_pos)
-        # print("-----------------------------------")
-        # print("last_robot_pos: ", self.last_robot_pos)
-        # print("curr_robot_pos: ", curr_robot_pos)
-        # print("-----------------------------------")
-        # print("curr_progress_to_agent: ", curr_progress_to_agent)
-        # print("last_progress_to_agent: ", last_progress_to_agent)
-        # print("rew: ", curr_progress_to_agent - last_progress_to_agent)
-        # print("===================================")
+        # if self.save_rew_data:
+        #     if self.r_start is None:
+        #         self.r_start = robot_start_pos.unsqueeze(0)
+        #         self.r_goal = robot_goal_pos.unsqueeze(0)
+        #         self.r_curr = curr_robot_pos.unsqueeze(0)
+        #         self.r_curr_proj = curr_progress_to_agent.unsqueeze(0)
+        #         self.r_last = self.last_robot_pos.unsqueeze(0)
+        #         self.r_last_proj = last_progress_to_agent.unsqueeze(0)
+        #     else:
+        #         self.r_start = torch.cat((self.r_start, robot_start_pos.unsqueeze(0)), dim=0)
+        #         self.r_goal = torch.cat((self.r_goal, robot_goal_pos.unsqueeze(0)), dim=0)
+        #         self.r_curr = torch.cat((self.r_curr, curr_robot_pos.unsqueeze(0)), dim=0)
+        #         self.r_curr_proj = torch.cat((self.r_curr_proj, curr_progress_to_agent.unsqueeze(0)), dim=0)
+        #         self.r_last = torch.cat((self.r_last, self.last_robot_pos.unsqueeze(0)), dim=0)
+        #         self.r_last_proj = torch.cat((self.r_last_proj, last_progress_to_agent.unsqueeze(0)), dim=0)
 
-        if self.save_rew_data:
-            if self.r_start is None:
-                self.r_start = robot_start_pos.unsqueeze(0)
-                self.r_goal = robot_goal_pos.unsqueeze(0)
-                self.r_curr = curr_robot_pos.unsqueeze(0)
-                self.r_curr_proj = curr_progress_to_agent.unsqueeze(0)
-                self.r_last = self.last_robot_pos.unsqueeze(0)
-                self.r_last_proj = last_progress_to_agent.unsqueeze(0)
-            else:
-                self.r_start = torch.cat((self.r_start, robot_start_pos.unsqueeze(0)), dim=0)
-                self.r_goal = torch.cat((self.r_goal, robot_goal_pos.unsqueeze(0)), dim=0)
-                self.r_curr = torch.cat((self.r_curr, curr_robot_pos.unsqueeze(0)), dim=0)
-                self.r_curr_proj = torch.cat((self.r_curr_proj, curr_progress_to_agent.unsqueeze(0)), dim=0)
-                self.r_last = torch.cat((self.r_last, self.last_robot_pos.unsqueeze(0)), dim=0)
-                self.r_last_proj = torch.cat((self.r_last_proj, last_progress_to_agent.unsqueeze(0)), dim=0)
+        #     if self.rew_debug_tstep % self.rew_debug_interval == 0:
+        #         print("Saving reward debugging information at ", self.rew_debug_tstep, "...")
+        #         now = datetime.now()
+        #         dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
+        #         filename = "rew_debug_" + dt_string + "_" + str(self.rew_debug_tstep) + ".pickle"
+        #         data_dict = {"r_start": self.r_start.cpu().numpy(),
+        #                      "r_goal": self.r_goal.cpu().numpy(),
+        #                      "r_curr": self.r_curr.cpu().numpy(),
+        #                      "r_curr_proj": self.r_curr_proj.cpu().numpy(),
+        #                      "r_last": self.r_last.cpu().numpy(),
+        #                      "r_last_proj": self.r_last_proj.cpu().numpy()}
+        #         with open(filename, 'wb') as handle:
+        #             pickle.dump(data_dict, handle)
 
-            if self.rew_debug_tstep % self.rew_debug_interval == 0:
-                print("Saving reward debugging information at ", self.rew_debug_tstep, "...")
-                now = datetime.now()
-                dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
-                filename = "rew_debug_" + dt_string + "_" + str(self.rew_debug_tstep) + ".pickle"
-                data_dict = {"r_start": self.r_start.cpu().numpy(),
-                             "r_goal": self.r_goal.cpu().numpy(),
-                             "r_curr": self.r_curr.cpu().numpy(),
-                             "r_curr_proj": self.r_curr_proj.cpu().numpy(),
-                             "r_last": self.r_last.cpu().numpy(),
-                             "r_last_proj": self.r_last_proj.cpu().numpy()}
-                with open(filename, 'wb') as handle:
-                    pickle.dump(data_dict, handle)
-
-            self.rew_debug_tstep += 1
+        #     self.rew_debug_tstep += 1
 
         return curr_progress_to_agent - last_progress_to_agent
-
-    def _reward_facing_agent(self):
-        """Reward for the robot facing the agemt"""
-        rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
-        _, _, robot_yaw = get_euler_xyz(robot_base_quat)
-        robot_yaw = wrap_to_pi(robot_yaw)
-
-        rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
-        rel_yaw_global = wrap_to_pi(rel_yaw_global)
-        thresh = 0.15
-        rew = torch.exp(-torch.abs(rel_yaw_global))
-        rew[rew < thresh] = 0.0
-        return rew
 
     def proj_state_to_path(self, curr_pos, start, goal):
         """Projects point curr_pos onto the line formed by start and goal points"""

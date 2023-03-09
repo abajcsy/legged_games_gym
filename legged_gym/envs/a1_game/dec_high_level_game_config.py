@@ -8,8 +8,8 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
-        # num_observations_robot = 3      # GT observations: (x_rel)
-        num_observations_robot = 12     # KF observations: (xhat_rel, Phat)
+        num_observations_robot = 3      # GT observations: (x_rel)
+        # num_observations_robot = 20     # KF observations: (xhat_rel, Phat)
         # num_observations_robot = 16     # Raw hist observations: 4-steps x_rel history + visible bools
         # num_observations_robot = 12 #24 #28         # ROBOT
         num_observations_agent = 5          # AGENT (CUBE)
@@ -19,13 +19,13 @@ class DecHighLevelGameCfg( BaseConfig ):
         num_privileged_obs_agent = None
         embedding_sz_robot = None #8
         embedding_sz_agent = None #2
-        num_actions_robot = 2 #3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
+        num_actions_robot = 1         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 3     # other agent (vx, vy, omega) = 3
         env_spacing = 3.        # not used with heightfields / trimeshes
         send_timeouts = False    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
         capture_dist = 0.8      # if the two agents are closer than this dist, they are captured
-        robot_full_fov = 1.20428 # 64 degrees, RealSense; 4.71 # 270 degrees
+        robot_full_fov = 1.20428    # 64 degrees, RealSense; 4.71 # 270 degrees
 
     class terrain:
         mesh_type = 'plane' # 'trimesh'
@@ -41,7 +41,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         class ranges:
             lin_vel_x = [-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [-1.0, 1.0]     # min max [m/s]
-            ang_vel_yaw = [-1, 1] #[-1, 1]       # min max [rad/s]
+            ang_vel_yaw = [-1, 1]       # min max [rad/s]
             heading = [-3.14, 3.14]
             agent_lin_vel_x = [-2.0, 2.0] # min max [m/s]
             agent_lin_vel_y = [-2.0, 2.0] # min max [m/s]
@@ -87,8 +87,9 @@ class DecHighLevelGameCfg( BaseConfig ):
     class rewards_robot: # ROBOT!
         only_positive_rewards = False
         class scales:
-            pursuit = -1.0
-            facing_agent = 0.0
+            pursuit = -0.0
+            robot_foveation = 5.0
+            robot_ang_vel = -0.0
             path_progress = 0.0
             termination = 0.0
 
@@ -166,7 +167,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         value_loss_coef = 1.0
         use_clipped_value_loss = True
         clip_param = 0.2
-        entropy_coef = 0.01
+        entropy_coef = 0.0 #0.01
         num_learning_epochs = 5
         num_mini_batches = 4  # mini batch size = num_envs*nsteps / nminibatches
         learning_rate = 1.e-3  # 5.e-4
@@ -180,7 +181,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic' # 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 801 #8001 #3601           # number of policy updates per agent
+        max_iterations = 1001 #8001 #3601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
