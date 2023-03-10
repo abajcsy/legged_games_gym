@@ -24,7 +24,14 @@ class DecHighLevelGameCfg( BaseConfig ):
         send_timeouts = False    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
         capture_dist = 0.8      # if the two agents are closer than this dist, they are captured
-        robot_full_fov = 1.20428    # 64 degrees, RealSense; For larger FOV use 4.71 which is 270 degrees
+
+    class robot_sensing:
+        fov = 1.20428  # = 64 degrees, RealSense
+        fov_curriculum = False
+        fov_levels = [6.28, 4.71, 3.14, 1.57, 1.20428] # 360, 270, 180, 90, 64 degrees
+        prey_curriculum = False
+        prey_angs = [0.52, 1.04, 1.57, 2.4, 3.14] # prey's initial relative angle will be in [-prey_ang, prey_ang]
+        curriculum_target_iters = [200, 400, 600, 800, 1000]
 
     class terrain:
         mesh_type = 'plane' # 'trimesh'
@@ -98,17 +105,6 @@ class DecHighLevelGameCfg( BaseConfig ):
             evasion = 0.0
             termination = 0.0
 
-    # THIS IS FOR LOW LEVEL POLICY!
-    # class normalization:
-    #     class obs_scales:
-    #         lin_vel = 2.0
-    #         ang_vel = 0.25
-    #         dof_pos = 1.0
-    #         dof_vel = 0.05
-    #         height_measurements = 5.0
-    #     clip_observations = 100.
-    #     clip_actions = 100.
-
     class noise:
         add_noise = True
         noise_level = 1.0 # scales other values
@@ -180,7 +176,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic' # 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 1001 #8001 #3601           # number of policy updates per agent
+        max_iterations = 1601 #3601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging

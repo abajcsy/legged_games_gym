@@ -608,12 +608,20 @@ class LowLevelGame(BaseTask):
                     print(f"PD gain of joint {name} were not defined, setting them to zero")
         self.default_dof_pos = self.default_dof_pos.unsqueeze(0)
 
+        self.init_agent_base_quat = self.root_states[self.agent_indices, 3:7].clone()
+        _, _, self.init_agent_heading = get_euler_xyz(self.init_agent_base_quat)
+        self.init_agent_heading = wrap_to_pi(self.init_agent_heading)
+        # self.init_agent_heading = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)
+        # self._reset_init_agent_states()
+
+        print("[LowLevelGame] self.init_agent_heading: ", self.init_agent_heading)
+
+    def _reset_init_agent_states():
+        """Updates local variables of initial agent states"""
         self.init_agent_pos = self.root_states[self.agent_indices, :3]
         self.init_agent_base_quat = self.root_states[self.agent_indices, 3:7].clone()
         _, _, self.init_agent_heading = get_euler_xyz(self.init_agent_base_quat)
         self.init_agent_heading = wrap_to_pi(self.init_agent_heading)
-
-        print("[LowLevelGame] self.init_agent_heading: ", self.init_agent_heading)
 
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.

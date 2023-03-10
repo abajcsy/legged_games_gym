@@ -55,13 +55,6 @@ class DecHighLevelGame():
         sim_device_type, self.sim_device_id = gymutil.parse_device_str(self.sim_device)
         self.headless = headless
 
-        # setup the capture distance between two agents
-        self.capture_dist = self.cfg.env.capture_dist
-        self.MAX_REL_POS = 100.
-
-        # setup sensing params about robot
-        self.robot_full_fov = self.cfg.env.robot_full_fov
-
         # env device is GPU only if sim is on GPU and use_gpu_pipeline=True, otherwise returned tensors are copied to CPU by physX.
         if sim_device_type == 'cuda' and sim_params.use_gpu_pipeline:
             self.device = self.sim_device
@@ -140,6 +133,44 @@ class DecHighLevelGame():
         self.gym = gymapi.acquire_gym()
 
         self.num_envs = self.cfg.env.num_envs
+
+        # setup the capture distance between two agents
+        self.capture_dist = self.cfg.env.capture_dist
+        self.MAX_REL_POS = 100.
+
+        # setup sensing params about robot
+        self.robot_full_fov = torch.zeros(self.num_envs, device=self.device, requires_grad=False)
+        self.robot_full_fov[:] = self.cfg.robot_sensing.fov
+
+        # if using a FOV curriculum, initialize it to the starting FOV
+        self.fov_curr_idx = 0
+        if self.cfg.robot_sensing.fov_curriculum:
+            self.robot_full_fov[:] = self.cfg.robot_sensing.fov_levels[self.fov_curr_idx]
+
+        # if using a PREY curriculum, initialize it with starting prey relative angle range
+        self.prey_curr_idx = 0
+        self.max_rad = 6.0
+        self.min_rad = 2.0 
+        if self.cfg.robot_sensing.prey_curriculum:
+            max_ang = self.cfg.robot_sensing.prey_angs[self.prey_curr_idx]
+            min_ang = -max_ang
+            rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
+            rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(self.min_rad, self.max_rad)
+            self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(rand_angle),
+                                               rand_radius * torch.sin(rand_angle),
+                                               torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)
+                                               ), dim=-1)
+            self.ll_env.agent_offset_xyz = self.agent_offset_xyz
+
+            # reset the low-level environment with the new initial prey positions 
+            self.ll_env._reset_root_states(torch.arange(self.num_envs, device=self.device))
+
+
+        # this keeps track of which training iteration we are in!
+        self.training_iter_num = 0
+        self.curriculum_target_iters = self.cfg.robot_sensing.curriculum_target_iters
+
+        print("[DecHighLevelGame] robot full fov is: ", self.robot_full_fov[0])
 
         # robot policy info
         self.num_obs_robot = self.cfg.env.num_observations_robot
@@ -294,6 +325,7 @@ class DecHighLevelGame():
             obs_buf_agent, obs_buf_robot, priviledged_obs_buf_agent, priviledged_obs_buf_robot, ...
             rew_buf_agent, rew_buf_robot, reset_buf, extras
         """
+
         # TODO: HACK!! This is for debugging.
         command_agent *= 0
 
@@ -314,7 +346,7 @@ class DecHighLevelGame():
         # print("[RAW] command robot: ", command_robot)
 
         # clip the robot and agent's commands
-        # command_robot = self.clip_command_robot(command_robot)
+        command_robot = self.clip_command_robot(command_robot)
         command_agent = self.clip_command_agent(command_agent)
 
         # print("[CLIPPED] command robot: ", command_robot)
@@ -344,6 +376,10 @@ class DecHighLevelGame():
 
         # take care of terminations, compute observations, rewards, and dones
         self.post_physics_step(ll_rews, ll_dones, command_robot)
+
+        # # update robot's visual sensing curriculum; do this for all envs
+        # if self.cfg.robot_sensing.fov_curriculum:
+        #     self._update_robot_sensing_curriculum(torch.arange(self.num_envs, device=self.device))
 
         return self.obs_buf_agent, self.obs_buf_robot, self.privileged_obs_buf_agent, self.privileged_obs_buf_robot, self.rew_buf_agent, self.rew_buf_robot, self.reset_buf, self.extras
 
@@ -547,8 +583,6 @@ class DecHighLevelGame():
         """
         if len(env_ids) == 0:
             return
-
-        # self.ll_env.reset_idx(env_ids) # TODO: reset low-level environment
 
         # resets the agent and robot states in the low-level simulator environment
         self.ll_env._reset_dofs(env_ids)
@@ -777,10 +811,12 @@ class DecHighLevelGame():
         rel_state_a_priori = self.kf.predict(actions_kf)
 
         if limited_fov is True:
-            half_fov = self.robot_full_fov /2.
+            half_fov = self.robot_full_fov / 2.
 
             # find environments where robot is visible
-            fov_bool = torch.any(torch.abs(rel_yaw_global) <= half_fov, dim=1)
+            leq = torch.le(torch.abs(rel_yaw_global), half_fov)
+            fov_bool = torch.any(leq, dim=1)
+            # fov_bool = torch.any(torch.abs(rel_yaw_global) <= half_fov, dim=1)
             visible_env_ids = fov_bool.nonzero(as_tuple=False).flatten()
         else:
             # if full FOV, then always get measurement and do update
@@ -1293,6 +1329,10 @@ class DecHighLevelGame():
             else:
                 self.gym.poll_viewer_events(self.viewer)
 
+    def update_training_iter_num(self, iter):
+        """Updates the internal variable keeping track of training iteration"""
+        self.training_iter_num = iter
+
     # ------------- Callbacks --------------#
 
     def _update_agent_states(self):
@@ -1315,6 +1355,44 @@ class DecHighLevelGame():
         self.agent_pos = self.ll_env.root_states[self.ll_env.agent_indices, :3]
         self.agent_states = self.ll_env.root_states[self.ll_env.agent_indices, :]
         self.agent_heading = self.ll_env.init_agent_heading.clone()
+
+    def _update_robot_sensing_curriculum(self, env_ids):
+        """ Implements the curriculum for the robot's FOV.
+
+        Args:
+            env_ids (List[int]): ids of environments being reset
+        """
+
+        if self.training_iter_num == self.curriculum_target_iters[self.fov_curr_idx]:
+            self.fov_curr_idx += 1
+            self.fov_curr_idx = min(self.fov_curr_idx, len(self.cfg.robot_sensing.fov_levels)-1)
+            self.robot_full_fov[env_ids] = self.cfg.robot_sensing.fov_levels[self.fov_curr_idx]
+            print("[DecHighLevelGame] in update_robot_sensing_curriculum():")
+            print("                   training iter num: ", self.training_iter_num)
+            print("                   robot FOV is: ", self.robot_full_fov[0])
+
+    def _update_prey_curriculum(self, env_ids):
+        """ Implements the curriculum for the prey initial position
+
+        Args:
+            env_ids (List[int]): ids of environments being reset
+        """
+        if self.training_iter_num == self.curriculum_target_iters[self.prey_curr_idx]:
+            self.prey_curr_idx += 1 
+            self.prey_curr_idx = min(self.prey_curr_idx, len(self.cfg.robot_sensing.prey_angs)-1)
+            max_ang = self.cfg.robot_sensing.prey_angs[self.prey_curr_idx]
+            min_ang = -max_ang
+            rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
+            rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(self.min_rad, self.max_rad)
+            self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(rand_angle),
+                                               rand_radius * torch.sin(rand_angle),
+                                               torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)
+                                               ), dim=-1)
+            self.ll_env.agent_offset_xyz = self.agent_offset_xyz
+
+            print("[DecHighLevelGame] in _update_prey_curriculum():")
+            print("                   training iter num: ", self.training_iter_num)
+            print("                   prey ang is: ", max_ang)
 
     def _prepare_reward_function_agent(self):
         """ Prepares a list of reward functions for the agent, which will be called to compute the total reward.
