@@ -19,7 +19,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         embedding_sz_robot = None #8
         embedding_sz_agent = None #2
         num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
-        num_actions_agent = 3     # other agent (vx, vy, omega) = 3
+        num_actions_agent = 3     # other agent 
         env_spacing = 3.        # not used with heightfields / trimeshes
         send_timeouts = False    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
@@ -49,8 +49,8 @@ class DecHighLevelGameCfg( BaseConfig ):
             lin_vel_y = [-1.0, 1.0]     # min max [m/s]
             ang_vel_yaw = [-1, 1]       # min max [rad/s]
             heading = [-3.14, 3.14]
-            agent_lin_vel_x = [-2.0, 2.0] # min max [m/s]
-            agent_lin_vel_y = [-2.0, 2.0] # min max [m/s]
+            agent_lin_vel_x = [-0.5, 0.5] # min max [m/s]
+            agent_lin_vel_y = [-0.5, 0.5] # min max [m/s]
             agent_ang_vel_yaw = [-1.0, 1.0] # min max [rad/s]
 
     class init_state:
@@ -176,7 +176,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic' # 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 1601 #3601           # number of policy updates per agent
+        max_iterations = 1001           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
@@ -184,9 +184,9 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         experiment_name = 'test'
         run_name = ''
         # load and resume
-        resume = False
-        load_run = -1  # -1 = last run
-        checkpoint = -1  # -1 = last saved model
+        resume = True #False
+        load_run = 'Mar09_19-33-14_' #-1  # -1 = last run
+        checkpoint = 1400 #-1  # -1 = last saved model
         resume_path = None  # updated from load_run and chkpt
         run_name = ''
         experiment_name = 'dec_high_level_game'

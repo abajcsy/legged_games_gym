@@ -64,8 +64,8 @@ def play_dec_game(args):
 
     # load policies of agent and robot
     train_cfg.runner.resume = True
-    train_cfg.runner.load_run = 'Mar09_19-33-14_' #'Mar09_13-04-56_'
-    train_cfg.runner.checkpoint = 1400 # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
+    train_cfg.runner.load_run = 'Mar16_02-03-25_' #'Mar09_13-04-56_'
+    train_cfg.runner.checkpoint = 2000 # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     dec_ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy_agent = dec_ppo_runner.get_inference_policy(agent_id=0, device=env.device)
     policy_robot = dec_ppo_runner.get_inference_policy(agent_id=1, device=env.device)

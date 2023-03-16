@@ -21,6 +21,7 @@ from legged_gym.utils.helpers import class_to_dict, get_load_path
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 from legged_gym.utils import task_registry
 from legged_gym.filters.kalman_filter import KalmanFilter
+from legged_gym.filters.ma_kalman_filter import MultiAgentKalmanFilter
 import sys
 
 import pickle
@@ -270,16 +271,27 @@ class DecHighLevelGame():
         self.est_traj = None
         self.P_traj = None 
         self.num_states_kf = 4
-        self.num_actions_kf = 3
+        # self.num_actions_kf = 3
+        self.num_actions_kf_r = 3
+        self.num_actions_kf_a = 2 
         self.state_type = "pos_ang"
         self.filter_dt = self.ll_env.dt # we get measurements slower than sim: filter_dt = decimation * sim.dt
-        self.kf = KalmanFilter(self.filter_dt, 
+        # self.kf = KalmanFilter(self.filter_dt, 
+        #                         self.num_states_kf, 
+        #                         self.num_actions_kf, 
+        #                         self.num_envs,
+        #                         state_type=self.state_type,
+        #                         device=self.device, 
+        #                         dtype=torch.float)
+        self.kf = MultiAgentKalmanFilter(self.filter_dt, 
                                 self.num_states_kf, 
-                                self.num_actions_kf, 
+                                self.num_actions_kf_r,
+                                self.num_actions_kf_a, 
                                 self.num_envs,
                                 state_type=self.state_type,
                                 device=self.device, 
                                 dtype=torch.float)
+
         # KF data saving info
         self.save_kf_data = False
         self.data_save_tstep = 0
@@ -327,7 +339,8 @@ class DecHighLevelGame():
         """
 
         # TODO: HACK!! This is for debugging.
-        command_agent *= 0
+        # command_agent *= 0
+        command_agent = self._straight_line_command_agent(command_agent)
 
         # rel_yaw = self.get_rel_yaw_global_robot()
         # robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
@@ -375,7 +388,7 @@ class DecHighLevelGame():
         self.step_agent_omnidirectional(command=command_agent)
 
         # take care of terminations, compute observations, rewards, and dones
-        self.post_physics_step(ll_rews, ll_dones, command_robot)
+        self.post_physics_step(ll_rews, ll_dones, command_robot, command_agent)
 
         # # update robot's visual sensing curriculum; do this for all envs
         # if self.cfg.robot_sensing.fov_curriculum:
@@ -425,6 +438,17 @@ class DecHighLevelGame():
                 command_robot[env_idx, 1] = 0.01 # small bias, just for fun
                 command_robot[env_idx, 2] = 1
         return command_robot
+
+    def _straight_line_command_agent(self, command_agent):
+        # TODO: This assumes agent is prey
+        rel_robot_pos_xyz = self.robot_states[:, :3] - self.agent_pos[:, :3] 
+        command_agent[:, 0] = -1 * torch.clip(rel_robot_pos_xyz[:, 0], min=self.command_ranges["agent_lin_vel_x"][0],
+                                         max=self.command_ranges["agent_lin_vel_x"][1])
+        command_agent[:, 1] = -1 * torch.clip(rel_robot_pos_xyz[:, 1], min=self.command_ranges["agent_lin_vel_y"][0],
+                                         max=self.command_ranges["agent_lin_vel_y"][1])
+        command_agent[:, 2] = 0
+
+        return command_agent
 
     def clip_command_robot(self, command_robot):
         """Clips the robot's commands"""
@@ -524,7 +548,7 @@ class DecHighLevelGame():
                                                      gymtorch.unwrap_tensor(agent_env_ids_int32),
                                                      len(agent_env_ids_int32))
 
-    def post_physics_step(self, ll_rews, ll_dones, command_robot):
+    def post_physics_step(self, ll_rews, ll_dones, command_robot, command_agent):
         """ check terminations, compute observations and rewards
             calls self._post_physics_step_callback() for common computations
         """
@@ -559,7 +583,7 @@ class DecHighLevelGame():
 
         # compute the high-level observation for each agent
         self.compute_observations_agent()               # compute high-level observations for agent
-        self.compute_observations_robot(command_robot)  # compute high-level observations for robot
+        self.compute_observations_robot(command_robot, command_agent)  # compute high-level observations for robot
 
         # print("[in post_physics_step] obs_buf_agent: ", self.obs_buf_agent)
 
@@ -726,7 +750,7 @@ class DecHighLevelGame():
             self.episode_sums_agent["termination"] += rew
         # print("high level rewards + low-level rewards: ", self.rew_buf)
 
-    def compute_observations_robot(self, command_robot):
+    def compute_observations_robot(self, command_robot, command_agent):
         """ Computes observations of the robot robot
         """
 
@@ -735,7 +759,7 @@ class DecHighLevelGame():
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
-        self.compute_observations_KF_robot(command_robot, limited_fov=True)   # OBS: (hat{x}_rel, hat{P})
+        self.compute_observations_KF_robot(command_robot, command_agent, limited_fov=True)   # OBS: (hat{x}_rel, hat{P})
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
@@ -790,7 +814,7 @@ class DecHighLevelGame():
                                         visible_bool.long(),
                                         ), dim=-1)
 
-    def compute_observations_KF_robot(self, command_robot, limited_fov=False):
+    def compute_observations_KF_robot(self, command_robot, command_agent, limited_fov=False):
         """ Computes observations of the robot using a Kalman Filter state estimate.
             obs_buf is laid out as:
 
@@ -807,8 +831,9 @@ class DecHighLevelGame():
         rel_yaw_global = self.get_rel_yaw_global_robot()
 
         # predict a priori state estimate 
-        actions_kf = command_robot[:, :self.num_actions_kf] 
-        rel_state_a_priori = self.kf.predict(actions_kf)
+        actions_kf_r = command_robot[:, :self.num_actions_kf_r] 
+        actions_kf_a = command_agent[:, :self.num_actions_kf_a] 
+        rel_state_a_priori = self.kf.predict(actions_kf_r, actions_kf_a)
 
         if limited_fov is True:
             half_fov = self.robot_full_fov / 2.
