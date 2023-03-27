@@ -339,8 +339,8 @@ class DecHighLevelGame():
         """
 
         # TODO: HACK!! This is for debugging.
-        # command_agent *= 0
-        command_agent = self._straight_line_command_agent(command_agent)
+        command_agent *= 0
+        # command_agent = self._straight_line_command_agent(command_agent)
 
         # rel_yaw = self.get_rel_yaw_global_robot()
         # robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
@@ -360,7 +360,7 @@ class DecHighLevelGame():
 
         # clip the robot and agent's commands
         command_robot = self.clip_command_robot(command_robot)
-        command_agent = self.clip_command_agent(command_agent)
+        # command_agent = self.clip_command_agent(command_agent)
 
         # print("[CLIPPED] command robot: ", command_robot)
 
@@ -1023,12 +1023,8 @@ class DecHighLevelGame():
         angle_btwn_agents_global = angle_btwn_agents_global.unsqueeze(-1)
         angle_btwn_agents_global = wrap_to_pi(angle_btwn_agents_global)
 
-        cos_angle_global = torch.cos(angle_btwn_agents_global)
-        sin_angle_global = torch.sin(angle_btwn_agents_global)
-
         self.obs_buf_agent = torch.cat((rel_robot_pos_xyz * 0.1,
-                                      cos_angle_global,
-                                      sin_angle_global
+                                      angle_btwn_agents_global
                                       ), dim=-1)
 
     def compute_observations_limited_FOV_agent(self):
@@ -1491,7 +1487,8 @@ class DecHighLevelGame():
     # ------------ reward functions----------------
     def _reward_evasion(self):
         """Reward for evading"""
-        return torch.norm(self.agent_pos[:, :2] - self.robot_states[:, :2], p=1, dim=-1)
+        rew = torch.square(torch.norm(self.agent_pos[:, :2] - self.robot_states[:, :2], p=2, dim=-1))
+        return rew
 
     def _reward_pursuit(self):
         """Reward for pursuing"""

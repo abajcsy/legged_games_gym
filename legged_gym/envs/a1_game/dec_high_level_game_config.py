@@ -11,7 +11,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         # num_observations_robot = 4      # GT observations: (x_rel, theta)
         num_observations_robot = 20     # KF observations: (xhat_rel, Phat)
         # num_observations_robot = 16     # Raw hist observations: 4-steps x_rel history + visible bools
-        num_observations_agent = 5          # AGENT (CUBE)
+        num_observations_agent = 4          # AGENT (CUBE)
         num_obs_encoded_robot = None        # how many of the observations are encoded?
         num_obs_encoded_agent = None #4
         num_privileged_obs_robot = None
@@ -102,7 +102,7 @@ class DecHighLevelGameCfg( BaseConfig ):
     class rewards_agent: # CUBE!
         only_positive_rewards = False
         class scales:
-            evasion = 0.0
+            evasion = 1.0
             termination = 0.0
 
     class noise:
@@ -176,17 +176,22 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic' # 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 1001           # number of policy updates per agent
+        max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
-        save_interval = 200  # check for potential saves every this many iterations
+        save_learn_interval = 200  # check for potential saves every this many iterations
+        save_evol_interval = 1 
         experiment_name = 'test'
         run_name = ''
         # load and resume
-        resume = True #False
+        resume_robot = False #True 
+        resume_agent = False
         load_run = 'Mar09_19-33-14_' #-1  # -1 = last run
-        checkpoint = 1400 #-1  # -1 = last saved model
+        evol_checkpoint_robot = 0       
+        learn_checkpoint_robot = 1400   # -1 = last saved model
+        evol_checkpoint_agent = 0
+        learn_checkpoint_agent = 1400
         resume_path = None  # updated from load_run and chkpt
         run_name = ''
         experiment_name = 'dec_high_level_game'

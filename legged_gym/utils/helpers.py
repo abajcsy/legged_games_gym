@@ -124,7 +124,7 @@ def get_load_path(root, load_run=-1, checkpoint=-1):
     load_path = os.path.join(load_run, model)
     return load_path
 
-def get_dec_load_path(root, agent_id, load_run=-1, checkpoint=-1):
+def get_dec_load_path(root, agent_id, load_run=-1, evol_checkpoint=-1, learn_checkpoint=-1):
     try:
         runs = os.listdir(root)
         #TODO sort by date to handle change of month
@@ -143,14 +143,27 @@ def get_dec_load_path(root, agent_id, load_run=-1, checkpoint=-1):
     else:
         agent_name = "robot"
 
-    if checkpoint==-1:
-        full_name = agent_name + "_model_"
+    if evol_checkpoint==-1:
+        full_name = agent_name + "_model_e"
         models = [file for file in os.listdir(load_run) if full_name in file]
-        models.sort(key=lambda m: '{0:0>15}'.format(m))
+        models.sort(key=lambda m: '{0:0>35}'.format(m)) # this left-pads the name up to 15 characters
         model = models[-1]
     else:
-        full_name = agent_name + "_model_{}.pt"
-        model = full_name.format(checkpoint)
+        full_name = agent_name + "_model_e{}_l0.pt" # HACK!
+        model = full_name.format(evol_checkpoint)
+
+    if learn_checkpoint==-1:
+        splt_model = model.split('_') # HACKS!
+        evol_id = splt_model[2].split('e')[1]
+        full_name = agent_name + "_model_e" + evol_id + "_l"
+        models = [file for file in os.listdir(load_run) if full_name in file]
+        models.sort(key=lambda m: '{0:0>35}'.format(m))
+        model = models[-1]
+    else:
+        splt_model = model.split('_') # HACKS!
+        evol_id = splt_model[2].split('e')[1]
+        full_name = agent_name + "_model_e" + evol_id + "_l{}.pt"
+        model = full_name.format(learn_checkpoint)
 
     load_path = os.path.join(load_run, model)
     return load_path
@@ -181,6 +194,41 @@ def update_cfg_from_args(env_cfg, cfg_train, args):
 
     return env_cfg, cfg_train
 
+def update_dec_cfg_from_args(env_cfg, cfg_train, args):
+    # seed
+    if env_cfg is not None:
+        # num envs
+        if args.num_envs is not None:
+            env_cfg.env.num_envs = args.num_envs
+    if cfg_train is not None:
+        if args.seed is not None:
+            cfg_train.seed = args.seed
+        # alg runner parameters
+        if args.max_iterations is not None:
+            cfg_train.runner.max_iterations = args.max_iterations
+        if args.max_evolutions is not None:
+            cfg_train.runner.max_evolutions = args.max_evolutions
+        if args.resume_robot:
+            cfg_train.runner.resume_robot = args.resume_robot
+        if args.resume_agent:
+            cfg_train.runner.resume_agent = args.resume_agent
+        if args.experiment_name is not None:
+            cfg_train.runner.experiment_name = args.experiment_name
+        if args.run_name is not None:
+            cfg_train.runner.run_name = args.run_name
+        if args.load_run is not None:
+            cfg_train.runner.load_run = args.load_run
+        if args.evol_checkpoint_robot is not None:
+            cfg_train.runner.evol_checkpoint_robot = args.evol_checkpoint_robot
+        if args.evol_checkpoint_agent is not None:
+            cfg_train.runner.evol_checkpoint_agent = args.evol_checkpoint_agent
+        if args.learn_checkpoint_robot is not None:
+            cfg_train.runner.learn_checkpoint_robot = args.learn_checkpoint_robot
+        if args.learn_checkpoint_agent is not None:
+            cfg_train.runner.learn_checkpoint_agent = args.learn_checkpoint_agent
+
+    return env_cfg, cfg_train
+
 def get_args():
     custom_parameters = [
         {"name": "--task", "type": str, "default": "anymal_c_flat", "help": "Resume training or start testing from a checkpoint. Overrides config file if provided."},
@@ -196,6 +244,39 @@ def get_args():
         {"name": "--num_envs", "type": int, "help": "Number of environments to create. Overrides config file if provided."},
         {"name": "--seed", "type": int, "help": "Random seed. Overrides config file if provided."},
         {"name": "--max_iterations", "type": int, "help": "Maximum number of training iterations. Overrides config file if provided."},
+    ]
+    # parse arguments
+    args = gymutil.parse_arguments(
+        description="RL Policy",
+        custom_parameters=custom_parameters)
+
+    # name allignment
+    args.sim_device_id = args.compute_device_id
+    args.sim_device = args.sim_device_type
+    if args.sim_device=='cuda':
+        args.sim_device += f":{args.sim_device_id}"
+    return args
+
+def get_dec_args():
+    custom_parameters = [
+        {"name": "--task", "type": str, "default": "anymal_c_flat", "help": "Resume training or start testing from a checkpoint. Overrides config file if provided."},
+        {"name": "--resume_robot", "action": "store_true", "default": False,  "help": "Resume training of ROBOT from a checkpoint"},
+        {"name": "--resume_agent", "action": "store_true", "default": False,  "help": "Resume training of AGENT from a checkpoint"},
+        {"name": "--experiment_name", "type": str,  "help": "Name of the experiment to run or load. Overrides config file if provided."},
+        {"name": "--run_name", "type": str,  "help": "Name of the run. Overrides config file if provided."},
+        {"name": "--load_run", "type": str,  "help": "Name of the run to load when resume=True. If -1: will load the last run. Overrides config file if provided."},
+        {"name": "--evol_checkpoint_robot", "type": int,  "help": "Saved model checkpoint at evolution number for ROBOT. If -1: will load the last evolution checkpoint. Overrides config file if provided."},
+        {"name": "--evol_checkpoint_agent", "type": int,  "help": "Saved model checkpoint at evolution number for AGENT. If -1: will load the last evolution checkpoint. Overrides config file if provided."},
+        {"name": "--learn_checkpoint_robot", "type": int,  "help": "Saved model checkpoint at learning iteration for ROBOT. If -1: will load the last learning checkpoint. Overrides config file if provided."},
+        {"name": "--learn_checkpoint_agent", "type": int,  "help": "Saved model checkpoint at learning iteration for AGENT. If -1: will load the last learning checkpoint. Overrides config file if provided."},
+
+        {"name": "--headless", "action": "store_true", "default": False, "help": "Force display off at all times"},
+        {"name": "--horovod", "action": "store_true", "default": False, "help": "Use horovod for multi-gpu training"},
+        {"name": "--rl_device", "type": str, "default": "cuda:0", "help": 'Device used by the RL algorithm, (cpu, gpu, cuda:0, cuda:1 etc..)'},
+        {"name": "--num_envs", "type": int, "help": "Number of environments to create. Overrides config file if provided."},
+        {"name": "--seed", "type": int, "help": "Random seed. Overrides config file if provided."},
+        {"name": "--max_iterations", "type": int, "help": "Maximum number of training iterations. Overrides config file if provided."},
+        {"name": "--max_evolutions", "type": int, "help": "Maximum number of robot-agent evolutions. Overrides config file if provided."},
     ]
     # parse arguments
     args = gymutil.parse_arguments(

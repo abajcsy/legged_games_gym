@@ -34,12 +34,12 @@ from datetime import datetime
 
 # import isaacgym
 from legged_gym.envs import *
-from legged_gym.utils import get_args, task_registry
+from legged_gym.utils import get_dec_args, task_registry
 # import torch
 
 def train(args):
     print("[train_dec_game] making the high-level environment")
-    env, env_cfg = task_registry.make_env(name=args.task, args=args)
+    env, env_cfg = task_registry.make_dec_env(name=args.task, args=args)
     print("[train_dec_game] making the algorithm runner...")
     ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args)
     print("[train_dec_game] starting the PPO runner...")
@@ -48,6 +48,6 @@ def train(args):
 
 if __name__ == '__main__':
     print("[train_dec_game] getting args...")
-    args = get_args()
+    args = get_dec_args()
     print("[train_dec_game] starting training setup..")
     train(args)

@@ -33,7 +33,7 @@ import os
 
 import isaacgym
 from legged_gym.envs import *
-from legged_gym.utils import get_args, export_policy_as_jit, task_registry, Logger
+from legged_gym.utils import get_dec_args, export_policy_as_jit, task_registry, Logger
 
 import numpy as np
 import torch
@@ -57,15 +57,21 @@ def play_dec_game(args):
 
     # # prepare environment
     print("[play_dec_game] making environment...")
-    env, _ = task_registry.make_env(name=args.task, args=args, env_cfg=env_cfg)
+    env, _ = task_registry.make_dec_env(name=args.task, args=args, env_cfg=env_cfg)
     print("[play_dec_game] getting observations for both agents..")
     obs_agent = env.get_observations_agent()
     obs_robot = env.get_observations_robot()
 
     # load policies of agent and robot
-    train_cfg.runner.resume = True
-    train_cfg.runner.load_run = 'Mar16_02-03-25_' #'Mar09_13-04-56_'
-    train_cfg.runner.checkpoint = 2000 # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
+    evol_checkpoint = 0
+    learn_checkpoint = 1400
+    train_cfg.runner.resume_robot = True
+    train_cfg.runner.resume_agent = True
+    train_cfg.runner.load_run = 'Mar27_13-40-43_' #'Mar16_02-03-25_' #'Mar09_13-04-56_'
+    train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
+    train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
+    train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
+    train_cfg.runner.evol_checkpoint_agent = evol_checkpoint
     dec_ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy_agent = dec_ppo_runner.get_inference_policy(agent_id=0, device=env.device)
     policy_robot = dec_ppo_runner.get_inference_policy(agent_id=1, device=env.device)
@@ -94,5 +100,5 @@ def play_dec_game(args):
             env.set_camera(camera_position, camera_position + camera_direction)
 
 if __name__ == '__main__':
-    args = get_args()
+    args = get_dec_args()
     play_dec_game(args)
