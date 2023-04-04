@@ -39,9 +39,10 @@ class KalmanFilter(object):
         self.I = torch.eye(self.num_states, device=self.device)
 
         if self.state_type == "pos_ang":
-            # need to remap B matrix so 3rd dim (z) is not controlled, but 4th dim (theta) is
-            self.B[2, -1] = 0
+            if self.num_states == 4:
+                self.B[2, -1] = 0 # HACK to remap B matrix so 3rd dim (z) is not controlled
             self.B[-1, -1] = self.dt
+            # self.P[-1, -1] *= 0.1
 
             # adjust the measurement covariance for angular component
             self.R[-1, -1] = 0.1
@@ -400,7 +401,7 @@ class KalmanFilter(object):
 
 def sim_robot_and_kf():
     dt = 0.02
-    num_states = 4
+    num_states = 3
     num_actions = 3
     num_envs = 1  # 2
     min_lin_vel = -1
@@ -410,6 +411,7 @@ def sim_robot_and_kf():
     state_type = "pos_ang"
     device = 'cpu'
     dtype = torch.float
+    robot_full_fov = 1.20428
 
     # define the real system
     max_s = 7
@@ -419,17 +421,17 @@ def sim_robot_and_kf():
     xa0 = torch.zeros(num_envs, num_states, dtype=dtype, device=device)
     xa0[0, 0] = 0
     xa0[0, 1] = 0
-    xa0[0, 3] = 0
+    xa0[0, 2] = 0
     # xa0[1, 0] = 1
     # xa0[1, 1] = 1
-    # xa0[1, 3] = 0
+    # xa0[1, 2] = 0
     xr0 = torch.zeros(num_envs, num_states, dtype=dtype, device=device)
     xr0[0, 0] = 3
     xr0[0, 1] = 2
-    xr0[0, 3] = np.pi / 2
+    xr0[0, 2] = np.pi / 2
     # xr0[1, 0] = -3
     # xr0[1, 1] = -2
-    # xr0[1, 3] = np.pi/4
+    # xr0[1, 2] = np.pi/4
 
     # define the kalman filter and set init state
     kf = KalmanFilter(dt, num_states, num_actions, num_envs, state_type, device, dtype)
@@ -468,15 +470,33 @@ def sim_robot_and_kf():
         pred_traj = np.append(pred_traj, [xhat.numpy()], axis=0)
 
         # get a measurement
-        if tidx % 20 == 0:
-            print("got measurement, doing corrective update...")
-            x = real_traj[tidx, :]
-            z = kf.sim_measurement(torch.tensor(x, dtype=torch.float64))
-            if tidx == 0:
-                z_traj = np.array([z.numpy()])
-            else:
-                z_traj = np.append(z_traj, [z.numpy()], axis=0)
-            kf.correct(z, all_env_ids)
+        # if tidx % 20 == 0:
+        #     print("got measurement, doing corrective update...")
+        #     x = real_traj[tidx, :]
+        #     z = kf.sim_measurement(torch.tensor(x, dtype=torch.float64))
+        #     if tidx == 0:
+        #         z_traj = np.array([z.numpy()])
+        #     else:
+        #         z_traj = np.append(z_traj, [z.numpy()], axis=0)
+        #     kf.correct(z, all_env_ids)
+
+        # find environments where robot is visible
+        x = real_traj[tidx, :]
+        dtheta = x[:, -1]
+        half_fov = robot_full_fov / 2.
+        leq = torch.le(torch.abs(torch.tensor(dtheta.reshape(num_envs, 1))), half_fov)
+        fov_bool = torch.any(leq, dim=1)
+        visible_env_ids = fov_bool.nonzero(as_tuple=False).flatten()
+
+        # simulate observations
+        z = kf.sim_measurement(torch.tensor(x, dtype=torch.float64))
+
+        if tidx == 0:
+            z_traj = np.array([z.numpy()])
+        else:
+            z_traj = np.append(z_traj, [z.numpy()], axis=0)
+
+        kf.correct(z, visible_env_ids)
 
         est_traj = np.append(est_traj, [kf.xhat.numpy()], axis=0)
         P_traj = np.append(P_traj, [kf.P_tensor.numpy()], axis=0)

@@ -60,6 +60,10 @@ class MultiAgentKalmanFilter(object):
             self.B_r[2, -1] = 0
             self.B_r[-1, -1] = self.dt
 
+            # if only ctrlling (lin_vel_x, omega)
+            if self.num_actions_r == 2:
+                self.B_r[1, -1] = 0
+
             self.B_a[2, -1] = 0 # TODO: this is a hack for now
 
             # adjust the measurement covariance for angular component

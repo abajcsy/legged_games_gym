@@ -1,6 +1,7 @@
 import pickle
 import os
 
+from legged_gym.filters.filter_helpers import wrap_to_pi, plot_state_traj, plot_state_cov_mat
 
 if __name__ == '__main__':
 
@@ -14,11 +15,11 @@ if __name__ == '__main__':
 	# bla = 'kf_data_09_03_2023-11-22-56_200.pickle' # 600 iter policy
 	# bla = 'kf_data_09_03_2023-11-22-31_100.pickle'  # 200 iter policy
 
-	bla = 'kf_data_09_03_2023-12-52-13_300.pickle'
+	# bla = 'kf_data_09_03_2023-12-52-13_300.pickle'
 
-	# bla = 'kf_data_09_03_2023-11-12-58_100.pickle'
+	bla = 'kf_data_04_04_2023-15-32-07_500.pickle' #'kf_data_03_04_2023-10-08-19_400.pickle' #'kf_data_01_04_2023-21-23-23_200.pickle' #'kf_data_01_04_2023-14-41-06_200.pickle'
 
-	filename = path + '/data/' + bla #kf_data_27_02_2023-17-18-12_200.pickle'
+	filename = path + '/data/' + bla 
 	with open(filename, "rb") as f:
 		data_dict = pickle.load(f)
 
@@ -34,6 +35,6 @@ if __name__ == '__main__':
 	print("shape of z_traj: ", z_traj.shape)
 	print("shape of P_traj: ", P_traj.shape)
 
-	kf._plot_state_traj(real_traj, z_traj, pred_traj, est_traj)
-	kf._plot_state_cov_mat(P_traj, est_traj)
+	plot_state_traj(real_traj, z_traj, pred_traj, est_traj, show_fig=True)
+	plot_state_cov_mat(P_traj, est_traj, show_fig=True)
 

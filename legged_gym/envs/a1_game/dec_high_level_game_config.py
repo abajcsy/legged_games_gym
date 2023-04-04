@@ -9,7 +9,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
         # num_observations_robot = 4      # GT observations: (x_rel, theta)
-        num_observations_robot = 20     # KF observations: (xhat_rel, Phat)
+        num_observations_robot = 20 # 12     # KF observations: (xhat_rel, Phat)
         # num_observations_robot = 16     # Raw hist observations: 4-steps x_rel history + visible bools
         num_observations_agent = 4          # AGENT (CUBE)
         num_obs_encoded_robot = None        # how many of the observations are encoded?
@@ -19,19 +19,20 @@ class DecHighLevelGameCfg( BaseConfig ):
         embedding_sz_robot = None #8
         embedding_sz_agent = None #2
         num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
-        num_actions_agent = 3     # other agent 
+        num_actions_agent = 2     # other agent 
         env_spacing = 3.        # not used with heightfields / trimeshes
         send_timeouts = False    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
         capture_dist = 0.8      # if the two agents are closer than this dist, they are captured
 
     class robot_sensing:
+        filter_type = "kf" # options: "ukf" or "kf"
         fov = 1.20428  # = 64 degrees, RealSense
         fov_curriculum = False
         fov_levels = [6.28, 4.71, 3.14, 1.57, 1.20428] # 360, 270, 180, 90, 64 degrees
         prey_curriculum = False
         prey_angs = [0.52, 1.04, 1.57, 2.4, 3.14] # prey's initial relative angle will be in [-prey_ang, prey_ang]
-        curriculum_target_iters = [200, 400, 600, 800, 1000]
+        curriculum_target_iters = [200, 400, 600, 800, 1000] #[400, 800, 1200, 1600, 1800]
 
     class terrain:
         mesh_type = 'plane' # 'trimesh'
@@ -45,8 +46,8 @@ class DecHighLevelGameCfg( BaseConfig ):
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
         class ranges:
-            lin_vel_x = [-1.0, 1.0]     # min max [m/s]
-            lin_vel_y = [-1.0, 1.0]     # min max [m/s]
+            lin_vel_x = [0, 100000]#[-1.0, 1.0]     # min max [m/s]
+            lin_vel_y = [0, 0] #[-1.0, 1.0]     # min max [m/s]
             ang_vel_yaw = [-1, 1]       # min max [rad/s]
             heading = [-3.14, 3.14]
             agent_lin_vel_x = [-0.5, 0.5] # min max [m/s]
@@ -176,7 +177,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic' # 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 1601           # number of policy updates per agent
+        max_iterations = 1401           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
@@ -185,9 +186,9 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         experiment_name = 'test'
         run_name = ''
         # load and resume
-        resume_robot = False #True 
+        resume_robot = False
         resume_agent = False
-        load_run = 'Mar09_19-33-14_' #-1  # -1 = last run
+        load_run = 'Apr03_15-16-53_' #'Mar27_13-40-43_' #'Mar09_19-33-14_'  # -1 = last run
         evol_checkpoint_robot = 0       
         learn_checkpoint_robot = 1400   # -1 = last saved model
         evol_checkpoint_agent = 0
