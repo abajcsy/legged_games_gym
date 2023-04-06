@@ -36,6 +36,8 @@ from .anymal_b.anymal_b_config import AnymalBRoughCfg, AnymalBRoughCfgPPO
 from .cassie.cassie import Cassie
 from .cassie.cassie_config import CassieRoughCfg, CassieRoughCfgPPO
 from .a1.a1_config import A1RoughCfg, A1RoughCfgPPO
+from .a1.a1wxv_config import A1WXVRoughCfg, A1WXVRoughCfgPPO
+from .a1.legged_robot_arm_vision_prior import LeggedRobotVision
 
 from .a1_game.high_level_game import HighLevelGame
 from .a1_game.dec_high_level_game import DecHighLevelGame
@@ -50,6 +52,7 @@ task_registry.register( "anymal_c_rough", Anymal, AnymalCRoughCfg(), AnymalCRoug
 task_registry.register( "anymal_c_flat", Anymal, AnymalCFlatCfg(), AnymalCFlatCfgPPO() )
 task_registry.register( "anymal_b", Anymal, AnymalBRoughCfg(), AnymalBRoughCfgPPO() )
 task_registry.register( "a1", LeggedRobot, A1RoughCfg(), A1RoughCfgPPO() )
+task_registry.register( "a1wxv_rough", LeggedRobotVision, A1WXVRoughCfg(), A1WXVRoughCfgPPO() )
 task_registry.register( "cassie", Cassie, CassieRoughCfg(), CassieRoughCfgPPO() )
 task_registry.register( "low_level_game", LowLevelGame, LowLevelGameCfg(), LowLevelGamePPO() )
 task_registry.register( "high_level_game", HighLevelGame, HighLevelGameFlatCfg(), HighLevelGameFlatCfgPPO() )
