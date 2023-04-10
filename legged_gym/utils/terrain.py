@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
+import pdb
 
 import numpy as np
 from numpy.random import choice
@@ -57,6 +58,8 @@ class Terrain:
         self.border = int(cfg.border_size / self.cfg.horizontal_scale)
         self.tot_cols = int(cfg.num_cols * self.width_per_env_pixels) + 2 * self.border
         self.tot_rows = int(cfg.num_rows * self.length_per_env_pixels) + 2 * self.border
+
+        self.obs_locs_xy = [] # for keeping track of the xy [m] positions of obstacles
 
         self.height_field_raw = np.zeros((self.tot_rows, self.tot_cols), dtype=np.int16)
         if cfg.curriculum:
@@ -115,7 +118,7 @@ class Terrain:
                                            horizontal_scale=self.cfg.horizontal_scale)
         slope = difficulty * 0.4
         step_height = 0.05 + 0.18 * difficulty
-        discrete_obstacles_height = 0.05 + difficulty * 0.2
+        discrete_obstacles_height = 1. #0.05 + difficulty * 0.2
         stepping_stones_size = 1.5 * (1.05 - difficulty)
         stone_distance = 0.05 if difficulty == 0 else 0.1
         gap_size = 1. * difficulty
@@ -133,16 +136,34 @@ class Terrain:
                 step_height *= -1
             terrain_utils.pyramid_stairs_terrain(terrain, step_width=0.31, step_height=step_height, platform_size=3.)
         elif choice < self.proportions[4]:
-            num_rectangles = 20
-            rectangle_min_size = 1.
+            rectangle_min_size = 1.9
             rectangle_max_size = 2.
-            terrain_utils.discrete_obstacles_terrain(terrain, discrete_obstacles_height, rectangle_min_size,
-                                                     rectangle_max_size, num_rectangles, platform_size=3.)
+            num_rectangles = 20
+            terrain_utils.discrete_obstacles_terrain(terrain,
+                                                     discrete_obstacles_height,
+                                                     rectangle_min_size,
+                                                     rectangle_max_size,
+                                                     num_rectangles,
+                                                     platform_size=3.)
         elif choice < self.proportions[5]:
-            terrain_utils.stepping_stones_terrain(terrain, stone_size=stepping_stones_size,
-                                                  stone_distance=stone_distance, max_height=0., platform_size=4.)
+            terrain_utils.stepping_stones_terrain(terrain,
+                                                  stone_size=stepping_stones_size,
+                                                  stone_distance=stone_distance,
+                                                  max_height=0.,
+                                                  platform_size=4.)
         elif choice < self.proportions[6]:
-            gap_terrain(terrain, gap_size=gap_size, platform_size=3.)
+            # gap_terrain(terrain, gap_size=gap_size, platform_size=3.)
+            min_tsz = 0.5  # this is the "width" of the tree [m]
+            max_tsz = 1
+            theight = 500.
+            num_trees = self.cfg.num_obstacles
+            platform_size = 10.
+            forest_terrain(terrain,
+                           num_trees=num_trees,
+                           min_tree_size=min_tsz,
+                           max_tree_size=max_tsz,
+                           tree_height=theight,
+                           platform_size=platform_size)
         else:
             pit_terrain(terrain, depth=pit_depth, platform_size=4.)
 
@@ -167,7 +188,6 @@ class Terrain:
         env_origin_z = np.max(terrain.height_field_raw[x1:x2, y1:y2]) * terrain.vertical_scale
         self.env_origins[i, j] = [env_origin_x, env_origin_y, env_origin_z]
 
-
 def gap_terrain(terrain, gap_size, platform_size=1.):
     gap_size = int(gap_size / terrain.horizontal_scale)
     platform_size = int(platform_size / terrain.horizontal_scale)
@@ -191,3 +211,39 @@ def pit_terrain(terrain, depth, platform_size=1.):
     y1 = terrain.width // 2 - platform_size
     y2 = terrain.width // 2 + platform_size
     terrain.height_field_raw[x1:x2, y1:y2] = -depth
+
+def forest_terrain(terrain, min_tree_size,
+                               max_tree_size,
+                               num_trees,
+                               tree_height=10.,
+                               platform_size=10.):
+    true_center_x = terrain.length // 2
+    true_center_y = terrain.width // 2
+
+    for tree_idx in range(num_trees):
+        # randomly sample "width" of the tree trunk
+        tree_sz = np.random.uniform(low=min_tree_size, high=max_tree_size, size=1)[0]
+        tree_sz = int(tree_sz / terrain.horizontal_scale) # convert to scale
+
+        # randomly sample distance from center of the terrain
+        dx = np.random.randint(low=-true_center_x, high=true_center_x, size=1)[0]
+        dy = np.random.randint(low=-true_center_y, high=true_center_y, size=1)[0]
+
+        # setup the bounds of the tree
+        min_x = dx
+        min_y = dy
+        max_x = min_x + tree_sz
+        max_y = min_y + tree_sz
+
+        # record the center (x,y) in [m] and the width and height.
+        #   obs_locs_xy = [ [center_x, center_y, width_x, height_x]_tree1, ... ]
+        # obs_locs_xy.append([obs_origin_x, obs_origin_y])
+
+        # create the height field
+        terrain.height_field_raw[min_x : max_x, min_y : max_y] = tree_height
+
+    # TODO: HACK leave a platform where there are no obstacles to let robots spawn in free-space.
+    platform_size = int(platform_size / terrain.horizontal_scale)
+    x1 = (terrain.length - platform_size) // 2
+    y1 = (terrain.width - platform_size) // 2
+    terrain.height_field_raw[true_center_x - x1: true_center_x + x1, true_center_y - y1: true_center_y + y1] = 0

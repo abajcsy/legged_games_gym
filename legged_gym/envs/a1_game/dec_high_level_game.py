@@ -74,18 +74,28 @@ class DecHighLevelGame():
 
         # need to make sure that the low-level and high level have the same representation
         ll_env_cfg.env.num_envs = self.cfg.env.num_envs
-        ll_env_cfg.terrain.num_rows = self.cfg.terrain.num_rows
-        ll_env_cfg.terrain.num_cols = self.cfg.terrain.num_cols
-        ll_env_cfg.terrain.curriculum = self.cfg.terrain.curriculum
         ll_env_cfg.noise.add_noise = self.cfg.noise.add_noise
         ll_env_cfg.domain_rand.randomize_friction = self.cfg.domain_rand.randomize_friction
         ll_env_cfg.domain_rand.push_robots = self.cfg.domain_rand.push_robots
-        ll_env_cfg.terrain.mesh_type = self.cfg.terrain.mesh_type
-        ll_env_cfg.terrain.measure_heights = self.cfg.terrain.measure_heights
 
-        # TODO: HACK! Bump up the torque penalty to simulate "instantaneous control effort cost"
-        # before: -0.00001;
-        # ll_env_cfg.rewards.scales.torques = -5.
+        # setup terrain properties based on the high-level cfg file
+        ll_env_cfg.terrain.mesh_type = self.cfg.terrain.mesh_type
+        ll_env_cfg.terrain.num_rows = self.cfg.terrain.num_rows
+        ll_env_cfg.terrain.num_cols = self.cfg.terrain.num_cols
+        ll_env_cfg.terrain.curriculum = self.cfg.terrain.curriculum
+        ll_env_cfg.terrain.horizontal_scale = self.cfg.terrain.horizontal_scale
+        ll_env_cfg.terrain.vertical_scale = self.cfg.terrain.vertical_scale
+        ll_env_cfg.terrain.static_friction = self.cfg.terrain.static_friction
+        ll_env_cfg.terrain.dynamic_friction = self.cfg.terrain.dynamic_friction
+        ll_env_cfg.terrain.restitution = self.cfg.terrain.restitution
+        ll_env_cfg.terrain.measure_heights = self.cfg.terrain.measure_heights
+        ll_env_cfg.terrain.measured_points_x = self.cfg.terrain.measured_points_x
+        ll_env_cfg.terrain.measured_points_y = self.cfg.terrain.measured_points_y
+        ll_env_cfg.terrain.terrain_length = self.cfg.terrain.terrain_length
+        ll_env_cfg.terrain.terrain_width = self.cfg.terrain.terrain_width
+        ll_env_cfg.terrain.terrain_proportions = self.cfg.terrain.terrain_proportions
+        ll_env_cfg.terrain.slope_treshold = self.cfg.terrain.slope_treshold
+        ll_env_cfg.terrain.num_obstacles = self.cfg.terrain.num_obstacles
 
         # TODO: HACK! Align init states between the two configs
         ll_env_cfg.init_state.pos = self.cfg.init_state.robot_pos
@@ -110,6 +120,9 @@ class DecHighLevelGame():
         ll_env_cfg.domain_rand.max_push_vel_xy = self.cfg.domain_rand.max_push_vel_xy
         ll_env_cfg.noise.add_noise = self.cfg.noise.add_noise
         ll_env_cfg.noise.noise_level = self.cfg.noise.noise_level
+
+        # TODO: NOTE -- the low-level game is in charge of creating the simulation and terrain
+        #  (i.e., only the LL game calls create_sim())
 
         # create the policy loader
         ll_train_cfg_dict = class_to_dict(ll_train_cfg)
@@ -865,7 +878,10 @@ class DecHighLevelGame():
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
+        # if self.cfg.terrain.mesh_type is not in ['trimesh', 'heightfield']:
         self.compute_observations_KF_robot(command_robot, command_agent, limited_fov=True)   # OBS: (hat{x}_rel, hat{P})
+        # else: # add obstacle observations if non-flat terrain
+        #     self.compute_observations_KF_obstacles_robot(command_robot, command_agent, limited_fov=True)
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 

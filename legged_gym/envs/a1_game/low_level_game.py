@@ -430,9 +430,12 @@ class LowLevelGame(BaseTask):
             env_ids (List[int]): Environemnt ids
         """
         # Setup robot info -- base position
+
         if self.custom_origins:
             self.root_states[self.robot_indices[env_ids]] = self.base_init_state
             self.root_states[self.robot_indices[env_ids], :3] += self.env_origins[env_ids]
+            # TODO: HACK! Make sure robots start on the flat portion of the terrain, not high up
+            self.root_states[self.robot_indices[env_ids], 2] = self.base_init_state[2]
             self.root_states[self.robot_indices[env_ids], :2] += torch_rand_float(-1., 1., (len(env_ids), 2), device=self.device) # xy position within 1m of the center
         else:
             self.root_states[self.robot_indices[env_ids]] = self.base_init_state
