@@ -19,28 +19,62 @@ class DecHighLevelGameCfg( BaseConfig ):
         embedding_sz_robot = None #8
         embedding_sz_agent = None #2
         num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
-        num_actions_agent = 2     # other agent 
-        env_spacing = 3.        # not used with heightfields / trimeshes
-        send_timeouts = False    # send time out information to the algorithm
-        episode_length_s = 20   # episode length in seconds
-        capture_dist = 0.8      # if the two agents are closer than this dist, they are captured
+        num_actions_agent = 2       # other agent
+        env_spacing = 3.            # not used with heightfields / trimeshes
+        send_timeouts = False       # send time out information to the algorithm
+        episode_length_s = 20       # episode length in seconds
+        capture_dist = 0.8          # if the two agents are closer than this dist, they are captured
+        agent_dyn_type = "integrator"   # sets the agent's dynamics type: "dubins" or "integrator"
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
         fov = 1.20428  # = 64 degrees, RealSense
+
         fov_curriculum = False
         fov_levels = [6.28, 4.71, 3.14, 1.57, 1.20428] # 360, 270, 180, 90, 64 degrees
+
         prey_curriculum = False
         prey_angs = [0.52, 1.04, 1.57, 2.4, 3.14] # prey's initial relative angle will be in [-prey_ang, prey_ang]
+
+        obstacle_curriculum = False
+        obstacle_heights = [0., 0.1, 0.5, 1, 5] # [m]
+
         curriculum_target_iters = [200, 400, 600, 800, 1000] #[400, 800, 1200, 1600, 1800]
 
     class terrain:
-        mesh_type = 'plane' # 'trimesh'
+        mesh_type = 'plane'
+        horizontal_scale = 0.1  # [m]
+        vertical_scale = 0.005  # [m]
+        border_size = 25  # [m]
         curriculum = False
+        static_friction = 1.0
+        dynamic_friction = 1.0
+        restitution = 0.
+
+        # obstacle terrain only:
+        fov_measure_heights = False
+
         # rough terrain only:
         measure_heights = True
-        num_rows= 10 # number of terrain rows (levels)
-        num_cols = 20 # number of terrain cols (types)
+        measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]  # 1m x 1.6m rectangle (without center line)
+        measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
+        selected = False  # select a unique terrain type and pass all arguments
+        terrain_kwargs = None  # Dict of arguments for selected terrain
+        # max_init_terrain_level = 5 # starting curriculum state
+        terrain_length = 10
+        terrain_width = 10
+        num_rows = 3  # number of terrain rows (levels)
+        num_cols = 3  # number of terrain cols (types)
+
+        # terrain types: [smooth slope, rough slope, stairs up, stairs down, discrete obstacles, stepping stones, forest]
+        terrain_proportions = [0., 0., 0., 0., 0., 0., 1.]
+
+        # trimesh only:
+        slope_treshold = 0.75  # slopes above this threshold will be corrected to vertical surfaces
+
+        # forest terrain type only:
+        num_obstacles = 0  # number of "trees" in the environment
+        obstacle_height = 0  # in [units]; e.g. 500 is very tall, 20 is managable by robot
 
     class commands: # note: commands and actions are the same for the high-level policy
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
@@ -105,6 +139,10 @@ class DecHighLevelGameCfg( BaseConfig ):
         class scales:
             evasion = 1.0
             termination = 0.0
+
+    class normalization:
+        class obs_scales:
+            height_measurements = 5.0
 
     class noise:
         add_noise = True

@@ -45,15 +45,8 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 3
+    max_num_envs = 6
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
-    env_cfg.terrain.mesh_type = 'plane'
-    env_cfg.terrain.num_rows = 4    # number of terrain rows (levels)
-    env_cfg.terrain.num_cols = 4    # number of terrain cols (types)
-    env_cfg.terrain.curriculum = False
-    env_cfg.noise.add_noise = False
-    env_cfg.domain_rand.randomize_friction = False
-    env_cfg.domain_rand.push_robots = False
 
     # # prepare environment
     print("[play_dec_game] making environment...")
@@ -67,7 +60,8 @@ def play_dec_game(args):
     learn_checkpoint = 1400
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = True
-    train_cfg.runner.load_run = 'Apr03_15-16-53_' #'Apr01_16-44-17_' #'Apr01_18-55-06_' #'Mar27_13-40-43_' #'Mar16_02-03-25_' #'Mar09_13-04-56_'
+    train_cfg.runner.load_run = 'Apr03_15-16-53_' # Policy without obstacles, in 'dec_high_level_game'
+    # train_cfg.runner.load_run = 'Apr18_13-51-51_'
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
@@ -85,8 +79,9 @@ def play_dec_game(args):
     img_idx = 0
 
     for i in range(10 * int(env.max_episode_length)):
+        # print("[play_dec_game] current obs_robot: ", obs_robot.detach())
         actions_agent = policy_agent(obs_agent.detach())
-        actions_robot  = policy_robot(obs_robot.detach())
+        actions_robot = policy_robot(obs_robot.detach())
         obs_agent, obs_robot , _, _, rews_agent, rews_robot, dones, infos = env.step(actions_agent.detach(), actions_robot.detach())
 
         if RECORD_FRAMES:

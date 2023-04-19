@@ -153,15 +153,15 @@ class Terrain:
                                                   platform_size=4.)
         elif choice < self.proportions[6]:
             # gap_terrain(terrain, gap_size=gap_size, platform_size=3.)
-            min_tsz = 0.5  # this is the "width" of the tree [m]
-            max_tsz = 1
-            theight = 500.
+            min_t_width = 0.5  # this is the "width" of the tree [m]
+            max_t_width = 1
+            theight = self.cfg.obstacle_height
             num_trees = self.cfg.num_obstacles
-            platform_size = 10.
+            platform_size = 5 # size of free-space under where the robots spawn
             forest_terrain(terrain,
                            num_trees=num_trees,
-                           min_tree_size=min_tsz,
-                           max_tree_size=max_tsz,
+                           min_tree_size=min_t_width,
+                           max_tree_size=max_t_width,
                            tree_height=theight,
                            platform_size=platform_size)
         else:

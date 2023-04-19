@@ -9,30 +9,38 @@ class DecHighLevelGameObstaclesCfg( BaseConfig ):
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
         # num_observations_robot = 4      # GT observations: (x_rel, theta)
-        num_observations_robot = 20 # 12     # KF observations: (xhat_rel, Phat)
-        # num_observations_robot = 16     # Raw hist observations: 4-steps x_rel history + visible bools
+        # num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
+        num_observations_robot = 20+77   # KF with heightmap: (xhat_rel, Phat, height_pts)
         num_observations_agent = 4          # AGENT (CUBE)
-        num_obs_encoded_robot = None        # how many of the observations are encoded?
-        num_obs_encoded_agent = None #4
+        num_obs_encoded_robot = 77        # how many of the observations are encoded?
+        num_obs_encoded_agent = 0 
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
-        embedding_sz_robot = None #8
-        embedding_sz_agent = None #2
+        embedding_sz_robot = 16 #32
+        embedding_sz_agent = 0
         num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2     # other agent
         env_spacing = 3.        # not used with heightfields / trimeshes
         send_timeouts = False    # send time out information to the algorithm
         episode_length_s = 20   # episode length in seconds
         capture_dist = 0.8      # if the two agents are closer than this dist, they are captured
+        agent_dyn_type = "dubins"  # sets the agent's dynamics type: "dubins" or "integrator"
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
         fov = 1.20428  # = 64 degrees, RealSense
+
         fov_curriculum = False
         fov_levels = [6.28, 4.71, 3.14, 1.57, 1.20428] # 360, 270, 180, 90, 64 degrees
-        prey_curriculum = False
+
+        prey_curriculum = True
         prey_angs = [0.52, 1.04, 1.57, 2.4, 3.14] # prey's initial relative angle will be in [-prey_ang, prey_ang]
-        curriculum_target_iters = [200, 400, 600, 800, 1000] #[400, 800, 1200, 1600, 1800]
+
+        obstacle_curriculum = False
+        obstacle_heights = [0., 0.1, 0.5, 1, 5] # [m]
+
+        # when you update the curriculum
+        curriculum_target_iters = [800, 1600, 2200, 3000, 3800] #[200, 400, 600, 800, 1000]
 
     class terrain:
         mesh_type = 'trimesh' #  'trimesh', 'plane', 'heightfield'
@@ -44,16 +52,18 @@ class DecHighLevelGameObstaclesCfg( BaseConfig ):
         dynamic_friction = 1.0
         restitution = 0.
 
+        # obstacle terrain only:
+        fov_measure_heights = True
+
         # rough terrain only:
         measure_heights = True
-        measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7,
-                             0.8]  # 1mx1.6m rectangle (without center line)
+        measured_points_x = [-0.8, -0.7, -0.6, -0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]  # 1m x 1.6m rectangle (without center line)
         measured_points_y = [-0.5, -0.4, -0.3, -0.2, -0.1, 0., 0.1, 0.2, 0.3, 0.4, 0.5]
         selected = False  # select a unique terrain type and pass all arguments
         terrain_kwargs = None  # Dict of arguments for selected terrain
         # max_init_terrain_level = 5 # starting curriculum state
-        terrain_length = 15.
-        terrain_width = 15.
+        terrain_length = 10.
+        terrain_width = 10.
         num_rows = 3 # number of terrain rows (levels)
         num_cols = 3 # number of terrain cols (types)
 
@@ -63,8 +73,9 @@ class DecHighLevelGameObstaclesCfg( BaseConfig ):
         # trimesh only:
         slope_treshold = 0.75 # slopes above this threshold will be corrected to vertical surfaces
 
-        # forest terrain type only
-        num_obstacles = 25 # number of "trees" in the environment
+        # forest terrain type only:
+        num_obstacles = 5      # number of "trees" in the environment
+        obstacle_height = 150    # in [units]; e.g. 500 is very tall, 20 is managable by robot
 
     class commands: # note: commands and actions are the same for the high-level policy
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
@@ -129,6 +140,9 @@ class DecHighLevelGameObstaclesCfg( BaseConfig ):
         class scales:
             evasion = 1.0
             termination = 0.0
+    class normalization:
+        class obs_scales:
+            height_measurements = 5.0
 
     class noise:
         add_noise = True
@@ -198,10 +212,11 @@ class DecHighLevelGameObstaclesCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        policy_class_name = 'ActorCritic' # 'ActorCriticGames'
+        # policy_class_name = 'ActorCritic'
+        policy_class_name = 'ActorCriticGames'
         algorithm_class_name = 'PPO'
-        num_steps_per_env = 24          # per iteration
-        max_iterations = 1401           # number of policy updates per agent
+        num_steps_per_env = 24        # per iteration
+        max_iterations = 4601         # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
@@ -212,10 +227,10 @@ class DecHighLevelGameObstaclesCfgPPO( BaseConfig ):
         # load and resume
         resume_robot = False
         resume_agent = False
-        load_run = 'Apr03_15-16-53_' #'Mar27_13-40-43_' #'Mar09_19-33-14_'  # -1 = last run
-        load_experiment_name = 'dec_high_level_game'
+        load_run = 'Apr17_11-05-29_' #'Apr03_15-16-53_'  # -1 = last run
+        load_experiment_name = 'dec_high_level_game_obstacles' #'dec_high_level_game' # TODO: Figure out in task_registry() and helpers() what to do if load_experiment is different from experiment
         evol_checkpoint_robot = 0
-        learn_checkpoint_robot = 1400   # -1 = last saved model
+        learn_checkpoint_robot = 5600   # -1 = last saved model
         evol_checkpoint_agent = 0
         learn_checkpoint_agent = 1400
         resume_path = None  # updated from load_run and chkpt

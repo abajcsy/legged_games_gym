@@ -78,6 +78,10 @@ class DecHighLevelGame():
         ll_env_cfg.domain_rand.randomize_friction = self.cfg.domain_rand.randomize_friction
         ll_env_cfg.domain_rand.push_robots = self.cfg.domain_rand.push_robots
 
+        # let the ll env know about the robot's FOV for visualization / debug_viz purposes
+        # TODO: hack to put it in the terrain class!
+        ll_env_cfg.terrain.fov = self.cfg.robot_sensing.fov
+
         # setup terrain properties based on the high-level cfg file
         ll_env_cfg.terrain.mesh_type = self.cfg.terrain.mesh_type
         ll_env_cfg.terrain.num_rows = self.cfg.terrain.num_rows
@@ -89,6 +93,7 @@ class DecHighLevelGame():
         ll_env_cfg.terrain.dynamic_friction = self.cfg.terrain.dynamic_friction
         ll_env_cfg.terrain.restitution = self.cfg.terrain.restitution
         ll_env_cfg.terrain.measure_heights = self.cfg.terrain.measure_heights
+        ll_env_cfg.terrain.fov_measure_heights = self.cfg.terrain.fov_measure_heights
         ll_env_cfg.terrain.measured_points_x = self.cfg.terrain.measured_points_x
         ll_env_cfg.terrain.measured_points_y = self.cfg.terrain.measured_points_y
         ll_env_cfg.terrain.terrain_length = self.cfg.terrain.terrain_length
@@ -96,6 +101,7 @@ class DecHighLevelGame():
         ll_env_cfg.terrain.terrain_proportions = self.cfg.terrain.terrain_proportions
         ll_env_cfg.terrain.slope_treshold = self.cfg.terrain.slope_treshold
         ll_env_cfg.terrain.num_obstacles = self.cfg.terrain.num_obstacles
+        ll_env_cfg.terrain.obstacle_height = self.cfg.terrain.obstacle_height
 
         # TODO: HACK! Align init states between the two configs
         ll_env_cfg.init_state.pos = self.cfg.init_state.robot_pos
@@ -164,7 +170,7 @@ class DecHighLevelGame():
 
         # if using a PREY curriculum, initialize it with starting prey relative angle range
         self.prey_curr_idx = 0
-        self.max_rad = 6.0
+        self.max_rad = 6.0 # [m] distance away from predator
         self.min_rad = 2.0 
         if self.cfg.robot_sensing.prey_curriculum:
             max_ang = self.cfg.robot_sensing.prey_angs[self.prey_curr_idx]
@@ -180,6 +186,11 @@ class DecHighLevelGame():
             # reset the low-level environment with the new initial prey positions 
             self.ll_env._reset_root_states(torch.arange(self.num_envs, device=self.device))
 
+        # if using a OBSTACLE curriculum, initialize it with starting obstacle height
+        self.obstacle_curr_idx = 0
+        if self.cfg.robot_sensing.obstacle_curriculum:
+            max_obstacle_height = self.cfg.robot_sensing.obstacle_heights[self.obstacle_curr_idx]
+            # TODO: Complete this!
 
         # this keeps track of which training iteration we are in!
         self.training_iter_num = 0
@@ -189,13 +200,21 @@ class DecHighLevelGame():
 
         # robot policy info
         self.num_obs_robot = self.cfg.env.num_observations_robot
+        self.num_obs_encoded_robot = self.cfg.env.num_obs_encoded_robot
+        self.embedding_sz_robot = self.cfg.env.embedding_sz_robot
         self.num_privileged_obs_robot = self.cfg.env.num_privileged_obs_robot
         self.num_actions_robot = self.cfg.env.num_actions_robot
 
         # agent policy info
         self.num_obs_agent = self.cfg.env.num_observations_agent
+        self.num_obs_encoded_agent = self.cfg.env.num_obs_encoded_agent
+        self.embedding_sz_agent = self.cfg.env.embedding_sz_agent
         self.num_privileged_obs_agent = self.cfg.env.num_privileged_obs_agent
         self.num_actions_agent = self.cfg.env.num_actions_agent
+        self.agent_dyn_type = self.cfg.env.agent_dyn_type
+        if self.agent_dyn_type != "dubins" and self.agent_dyn_type != "integrator":
+            raise NameError("Can't simulate agent type: ", self.agent_dyn_type)
+            return -1
 
         # optimization flags for pytorch JIT
         torch._C._jit_set_profiling_mode(False)
@@ -380,8 +399,11 @@ class DecHighLevelGame():
 
         # TODO: HACK!! This is for debugging.
         # command_agent *= 0
-        # command_agent = self._straight_line_command_agent()
-        command_agent = self._weaving_command_agent()
+        # command_robot *= 0
+        if self.agent_dyn_type == "integrator":
+            command_agent = self._straight_line_command_agent()
+        elif self.agent_dyn_type == "dubins":
+            command_agent = self._weaving_command_agent()
 
         # rel_yaw = self.get_rel_yaw_global_robot()
         # robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
@@ -430,8 +452,10 @@ class DecHighLevelGame():
         self.ll_obs_buf_robot, _, ll_rews, ll_dones, _ = self.ll_env.step(ll_robot_actions.detach())
 
         # forward simulate the agent action too
-        # self.step_agent_single_integrator(command_agent)
-        self.step_agent_dubins_car(command_agent)
+        if self.agent_dyn_type == "integrator":
+            self.step_agent_single_integrator(command_agent)
+        elif self.agent_dyn_type == "dubins":
+            self.step_agent_dubins_car(command_agent)
 
         # take care of terminations, compute observations, rewards, and dones
         self.post_physics_step(ll_rews, ll_dones, command_robot, command_agent)
@@ -690,7 +714,7 @@ class DecHighLevelGame():
         self.compute_observations_agent()               # compute high-level observations for agent
         self.compute_observations_robot(command_robot, command_agent)  # compute high-level observations for robot
 
-        # print("[in post_physics_step] obs_buf_agent: ", self.obs_buf_agent)
+        # print("[in post_physics_step] obs_buf_robot: ", self.obs_buf_robot)
 
     def check_termination(self):
         """ Check if environments need to be reset under various conditions.
@@ -873,15 +897,15 @@ class DecHighLevelGame():
         """ Computes observations of the robot robot
         """
 
+        sense_obstacles = self.cfg.terrain.fov_measure_heights
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
         # self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
-        # if self.cfg.terrain.mesh_type is not in ['trimesh', 'heightfield']:
-        self.compute_observations_KF_robot(command_robot, command_agent, limited_fov=True)   # OBS: (hat{x}_rel, hat{P})
-        # else: # add obstacle observations if non-flat terrain
-        #     self.compute_observations_KF_obstacles_robot(command_robot, command_agent, limited_fov=True)
+        self.compute_observations_KF_robot(command_robot, command_agent,
+                                           limited_fov=True,
+                                           sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
@@ -936,19 +960,21 @@ class DecHighLevelGame():
                                         visible_bool.long(),
                                         ), dim=-1)
 
-    def compute_observations_KF_robot(self, command_robot, command_agent, limited_fov=False):
+    def compute_observations_KF_robot(self, command_robot, command_agent, limited_fov=False, sense_obstacles=False):
         """ Computes observations of the robot using a Kalman Filter state estimate.
             obs_buf is laid out as:
 
-            [s^t, P^t]
+            [s^t, P^t] if not sensing obstacles
+            [s^t, P^t, height_pts] if sensing obstalces
 
             where: 
                 s^t is the Kalman Filter estimated relative position (x, y, z) and dtheta.
                     of shape [num_envs, num_states]
                 P^t is a posteriori estimate covariance, flattened
                     of shape [num_envs, num_states*num_states]
+                height_pts is a series of (x,y,z) points measuring the height of the terrain, flattened
+                    of shape [num_envs, num_fov_height_points*3]
         """
-
         actions_kf_r = command_robot[:, :self.num_actions_kf_r]
         actions_kf_a = command_agent[:, :self.num_actions_kf_a]
 
@@ -1027,6 +1053,12 @@ class DecHighLevelGame():
                                         P_flattened
                                         ), dim=-1)
 
+        # add perceptive inputs if not blind
+        if sense_obstacles:
+            heights = torch.clip(self.ll_env.root_states[self.ll_env.robot_indices, 2].unsqueeze(1)
+                                 - 0.5 - self.ll_env.fov_measured_heights, -1, 1.) * self.obs_scales.height_measurements
+            self.obs_buf_robot = torch.cat((self.obs_buf_robot, heights), dim=-1)
+
         # ------------------------------------------------------------------- #
         # =========================== Book Keeping ========================== #
         # ------------------------------------------------------------------- #
@@ -1070,7 +1102,7 @@ class DecHighLevelGame():
 
             # advance timestep
             self.data_save_tstep += 1
-        # ------------------------------------------------------------------- # 
+        # ------------------------------------------------------------------- #
 
     def expand_with_zeros_at_dim(self, tensor_in, dim):
         """Expands the tensor_in by putting zeros at the old "dim" location.
@@ -1582,6 +1614,14 @@ class DecHighLevelGame():
             print("                   training iter num: ", self.training_iter_num)
             print("                   prey ang is: ", max_ang)
 
+    # def _update_obstacle_curriculum(self, env_ids):
+    #     """ Implements the curriculum for the obstacle heights
+    #
+    #     Args:
+    #         env_ids (List[int]): ids of environments being reset
+    #     """
+    #     if self.training_iter_num == self.curriculum_target_iters[self.prey_curr_idx]:
+
     def _prepare_reward_function_agent(self):
         """ Prepares a list of reward functions for the agent, which will be called to compute the total reward.
             Looks for self._reward_<REWARD_NAME>, where <REWARD_NAME> are names of all non zero reward scales in the cfg.
@@ -1640,7 +1680,7 @@ class DecHighLevelGame():
 
     def _parse_cfg(self, cfg):
         # self.dt = self.cfg.control.decimation * self.sim_params.dt
-        # self.obs_scales = self.cfg.normalization.obs_scales
+        self.obs_scales = self.cfg.normalization.obs_scales
         self.reward_scales_robot = class_to_dict(self.cfg.rewards_robot.scales)
         self.reward_scales_agent = class_to_dict(self.cfg.rewards_agent.scales)
         self.command_ranges = class_to_dict(self.cfg.commands.ranges)

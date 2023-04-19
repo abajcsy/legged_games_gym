@@ -70,12 +70,18 @@ class LowLevelGame(BaseTask):
         self.cfg = cfg
         self.sim_params = sim_params
         self.height_samples = None
-        self.debug_viz = False
+        self.debug_viz = True
         self.init_done = False
         self.aggregate_mode = 1
 
+        self.terrain = None
+
         # parse config info
         self._parse_cfg(self.cfg)
+
+        # for debugging / visualization
+        if self.cfg.terrain.fov is not None:
+            self.robot_fov = self.cfg.terrain.fov
 
         # create environments, initialize sim, etc.
         super().__init__(self.cfg, sim_params, physics_engine, sim_device, headless)
@@ -361,6 +367,8 @@ class LowLevelGame(BaseTask):
 
         if self.cfg.terrain.measure_heights:
             self.measured_heights = self._get_heights()
+        if self.cfg.terrain.fov_measure_heights:
+            self.fov_measured_heights = self._get_fov_heights()
         if self.cfg.domain_rand.push_robots and  (self.common_step_counter % self.cfg.domain_rand.push_interval == 0):
             self._push_robots()
 
@@ -590,7 +598,10 @@ class LowLevelGame(BaseTask):
         self.projected_gravity = quat_rotate_inverse(self.base_quat, self.gravity_vec)
         if self.cfg.terrain.measure_heights:
             self.height_points = self._init_height_points()
+        if self.cfg.terrain.fov_measure_heights:
+            self.fov_height_points = self._init_fov_height_points()
         self.measured_heights = 0
+        self.fov_measured_heights = 0
 
         # joint positions offsets and PD gains
         self.default_dof_pos = torch.zeros(self.num_dof, dtype=torch.float, device=self.device, requires_grad=False)
@@ -943,22 +954,78 @@ class LowLevelGame(BaseTask):
         """ Draws visualizations for dubugging (slows down simulation a lot).
             Default behaviour: draws height measurement points
         """
-        # draw height lines
-        if not self.terrain.cfg.measure_heights:
+        # if we don't have any heightfields, just visualize FOV rays
+        if self.terrain is None or not self.terrain.cfg.measure_heights:
+            self.gym.clear_lines(self.viewer)
+            self.gym.refresh_rigid_body_state_tensor(self.sim)
+            for i in range(self.num_envs):
+                # just draw the robot's FOV
+                self._draw_fov_rays(env_id=i)
             return
+
+        # draw height lines
         self.gym.clear_lines(self.viewer)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
-        sphere_geom = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
+        sphere_geom_yellow = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
+        sphere_geom_orange = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(0.95, 0.5, 0.2))
+        sphere_geom_red = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1,0,0))
         for i in range(self.num_envs):
+            # draw the measured points underneath the robot
             base_pos = (self.root_states[self.robot_indices[i], :3]).cpu().numpy() #(self.root_states[i, :3]).cpu().numpy()
-            heights = self.measured_heights[i].cpu().numpy()
-            height_points = quat_apply_yaw(self.base_quat[i].repeat(heights.shape[0]), self.height_points[i]).cpu().numpy()
-            for j in range(heights.shape[0]):
-                x = height_points[j, 0] + base_pos[0]
-                y = height_points[j, 1] + base_pos[1]
-                z = heights[j]
+            # heights = self.measured_heights[i].cpu().numpy()
+            # height_points = quat_apply_yaw(self.base_quat[i].repeat(heights.shape[0]), self.height_points[i]).cpu().numpy()
+            # for j in range(heights.shape[0]):
+            #     x = height_points[j, 0] + base_pos[0]
+            #     y = height_points[j, 1] + base_pos[1]
+            #     z = heights[j]
+            #     sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
+            #     gymutil.draw_lines(sphere_geom_yellow, self.gym, self.viewer, self.envs[i], sphere_pose)
+
+            # draw the measured points within the FOV
+            fov_heights = self.fov_measured_heights[i].cpu().numpy()
+            fov_height_points = quat_apply_yaw(self.base_quat[i].repeat(fov_heights.shape[0]), self.fov_height_points[i]).cpu().numpy()
+            for j in range(fov_heights.shape[0]):
+                x = fov_height_points[j, 0] + base_pos[0]
+                y = fov_height_points[j, 1] + base_pos[1]
+                z = fov_heights[j]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(x, y, z), r=None)
-                gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose) 
+                gymutil.draw_lines(sphere_geom_red, self.gym, self.viewer, self.envs[i], sphere_pose)
+
+            # just draw the robot's FOV
+            self._draw_fov_rays(env_id=i)
+
+    def _draw_fov_rays(self, env_id):
+        """Draws the extents of the robot's FOV."""
+        base_pos = (self.root_states[self.robot_indices[env_id], :3]).cpu().numpy()
+        # draw the robot's FOV
+        half_fov = torch.zeros(1, 1, device=self.device)
+        half_fov[:] = self.robot_fov / 2.
+        p2_pt = self.forward_vec[env_id].clone()
+        p2_pt[0] += 2.  # extent of the drawn line(s)
+
+        # get quaternion representing rotation about around the z-axis by +/- the half_fov angle
+        pos_quat = quat_from_angle_axis(half_fov, self.z_unit_tensor[env_id])  # rotate about z-axis
+        neg_quat = quat_from_angle_axis(-half_fov, self.z_unit_tensor[env_id])
+
+        # rotate unit vector around the z-axis by +/- the half_fov angle
+        p2_pt_pos = quat_apply_yaw(pos_quat, p2_pt)
+        p2_pt_neg = quat_apply_yaw(neg_quat, p2_pt)
+
+        # rotate the resultant vectors by the robot base quaternion
+        p2_base_pos = quat_apply_yaw(self.base_quat[env_id], p2_pt_pos).cpu().numpy()
+        p2_base_neg = quat_apply_yaw(self.base_quat[env_id], p2_pt_neg).cpu().numpy()
+        p2_base_fwd = quat_apply_yaw(self.base_quat[env_id], torch.tensor([0.5, 0.0, 0.0], device=self.device)).cpu().numpy()
+
+        # convert to gym Vectors for plotting
+        color_r = gymapi.Vec3(1, 0, 0)
+        color_b = gymapi.Vec3(0, 0, 1)
+        p1 = gymapi.Vec3(base_pos[0], base_pos[1], base_pos[2])
+        p2_pos = gymapi.Vec3(base_pos[0] + p2_base_pos[0], base_pos[1] + p2_base_pos[1], base_pos[2])
+        p2_neg = gymapi.Vec3(base_pos[0] + p2_base_neg[0], base_pos[1] + p2_base_neg[1], base_pos[2])
+        p2_fwd = gymapi.Vec3(base_pos[0] + p2_base_fwd[0], base_pos[1] + p2_base_fwd[1], base_pos[2])
+        gymutil.draw_line(p1, p2_pos, color_r, self.gym, self.viewer, self.envs[env_id])
+        gymutil.draw_line(p1, p2_neg, color_r, self.gym, self.viewer, self.envs[env_id])
+        gymutil.draw_line(p1, p2_fwd, color_b, self.gym, self.viewer, self.envs[env_id])
 
     def _init_height_points(self):
         """ Returns points at which the height measurments are sampled (in base frame)
@@ -975,6 +1042,78 @@ class LowLevelGame(BaseTask):
         points[:, :, 0] = grid_x.flatten()
         points[:, :, 1] = grid_y.flatten()
         return points
+
+    def _init_fov_height_points(self):
+        """ Returns points at which the height measurments within the FOV are sampled (in base frame)
+
+        Returns:
+            [torch.Tensor]: Tensor of shape (num_envs, self.num_fov_height_points, 3)
+        """
+        max_x = 2
+        max_y = 2
+        measured_points_x = np.linspace(-max_x, max_x, 21)
+        measured_points_y = np.linspace(-max_y, max_y, 21)
+        y = torch.tensor(measured_points_y, device=self.device, requires_grad=False)
+        x = torch.tensor(measured_points_x, device=self.device, requires_grad=False)
+
+        half_fov = self.robot_fov / 2.
+        in_fov_pts = []
+        for xpt in measured_points_x:
+            for ypt in measured_points_y:
+                ang = np.arctan2(ypt, xpt)
+                if np.abs(ang) < half_fov:
+                    in_fov_pts.append([xpt, ypt])
+
+        in_fov_pts = np.array(in_fov_pts)
+        self.num_fov_height_points = in_fov_pts.shape[0]
+        fov_points = torch.zeros(self.num_envs, self.num_fov_height_points, 3, device=self.device, requires_grad=False)
+
+        y_vis = torch.tensor(in_fov_pts[:, 1], device=self.device, requires_grad=False)
+        x_vis = torch.tensor(in_fov_pts[:, 0], device=self.device, requires_grad=False)
+
+        fov_points[:, :, 0] = x_vis.flatten()
+        fov_points[:, :, 1] = y_vis.flatten()
+        return fov_points
+
+    def _get_fov_heights(self, env_ids=None):
+        """ Samples heights of the terrain at required points within FOV of the robot.
+            The points are offset by the base's position and rotated by the base's yaw
+
+        Args:
+            env_ids (List[int], optional): Subset of environments for which to return the heights. Defaults to None.
+
+        Raises:
+            NameError: [description]
+
+        Returns:
+            [type]: [description]
+        """
+        if self.cfg.terrain.mesh_type == 'plane':
+            return torch.zeros(self.num_envs, self.num_fov_height_points, device=self.device, requires_grad=False)
+        elif self.cfg.terrain.mesh_type == 'none':
+            raise NameError("Can't measure height with terrain mesh type 'none'")
+
+        if env_ids:
+            points = quat_apply_yaw(self.base_quat[env_ids].repeat(1, self.num_fov_height_points),
+                                    self.fov_height_points[env_ids]) + (self.root_states[self.robot_indices[env_ids], :3]).unsqueeze(1)
+        else:
+            points = quat_apply_yaw(self.base_quat.repeat(1, self.num_fov_height_points),
+                                    self.fov_height_points) + (self.root_states[self.robot_indices, :3]).unsqueeze(1)
+
+        points += self.terrain.cfg.border_size
+        points = (points/self.terrain.cfg.horizontal_scale).long()
+        px = points[:, :, 0].view(-1)
+        py = points[:, :, 1].view(-1)
+        px = torch.clip(px, 0, self.height_samples.shape[0]-2)
+        py = torch.clip(py, 0, self.height_samples.shape[1]-2)
+
+        heights1 = self.height_samples[px, py]
+        heights2 = self.height_samples[px+1, py]
+        heights3 = self.height_samples[px, py+1]
+        heights = torch.min(heights1, heights2)
+        heights = torch.min(heights, heights3)
+
+        return heights.view(self.num_envs, -1) * self.terrain.cfg.vertical_scale
 
     def _get_heights(self, env_ids=None):
         """ Samples heights of the terrain at required points around each robot.
