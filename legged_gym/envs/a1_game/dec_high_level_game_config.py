@@ -8,8 +8,9 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
+        num_observations_robot = 1 # theta
         # num_observations_robot = 4      # GT observations: (x_rel, theta)
-        num_observations_robot = 20 # 12     # KF observations: (xhat_rel, Phat)
+        # num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
         # num_observations_robot = 16     # Raw hist observations: 4-steps x_rel history + visible bools
         num_observations_agent = 4          # AGENT (CUBE)
         num_obs_encoded_robot = None        # how many of the observations are encoded?
@@ -18,7 +19,8 @@ class DecHighLevelGameCfg( BaseConfig ):
         num_privileged_obs_agent = None
         embedding_sz_robot = None #8
         embedding_sz_agent = None #2
-        num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
+        num_actions_robot = 1       # ang_vel_yaw
+        # num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2       # other agent
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
@@ -28,7 +30,9 @@ class DecHighLevelGameCfg( BaseConfig ):
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
-        fov = 1.20428  # = 64 degrees, RealSense
+        fov = 6.28      # = 360, full FOV
+        # fov = 1.20428  # = 64 degrees, RealSense;
+        # fov = 1.54    # = 88 degrees, ZED 2 HD1080
 
         fov_curriculum = False
         fov_levels = [6.28, 4.71, 3.14, 1.57, 1.20428] # 360, 270, 180, 90, 64 degrees
@@ -79,6 +83,7 @@ class DecHighLevelGameCfg( BaseConfig ):
     class commands: # note: commands and actions are the same for the high-level policy
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
+        command_clipping = False        # if true: clip robot + agent commands to the ranges below
         class ranges:
             lin_vel_x = [0, 100000]#[-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [0, 0] #[-1.0, 1.0]     # min max [m/s]
@@ -128,8 +133,8 @@ class DecHighLevelGameCfg( BaseConfig ):
     class rewards_robot: # ROBOT!
         only_positive_rewards = False
         class scales:
-            pursuit = -1.0
-            robot_foveation = 0.0
+            pursuit = -0.0
+            robot_foveation = 1.0
             robot_ang_vel = -0.0
             path_progress = 0.0
             termination = 0.0
@@ -215,7 +220,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         policy_class_name = 'ActorCritic' # 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 1401           # number of policy updates per agent
+        max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging

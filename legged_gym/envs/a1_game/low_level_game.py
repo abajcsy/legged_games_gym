@@ -52,6 +52,8 @@ from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_fl
 from legged_gym.utils.helpers import class_to_dict
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 
+import legged_gym.utils.math
+
 class LowLevelGame(BaseTask):
     def __init__(self, cfg: LeggedRobotCfg, sim_params, physics_engine, sim_device, headless):
         """ Parses the provided config file,
@@ -452,6 +454,10 @@ class LowLevelGame(BaseTask):
         # robot info -- base velocities
         self.root_states[self.robot_indices[env_ids], 7:13] = torch_rand_float(-0.5, 0.5, (len(env_ids), 6), device=self.device) # [7:10]: lin vel, [10:13]: ang vel
 
+        # target_robot_ang = torch.tensor(np.pi/2, device=self.device).repeat(self.num_envs)
+        # robot_quat_vec = quat_from_angle_axis(target_robot_ang, self.z_unit_tensor)
+        # self.root_states[self.robot_indices[env_ids], 3:7] = robot_quat_vec[env_ids, :]
+
         # Reset agent info -- base position (random offset from robot)
         self.root_states[self.agent_indices[env_ids], :3] = self.root_states[self.robot_indices[env_ids], :3] + self.agent_offset_xyz[env_ids, :3]
         self.root_states[self.agent_indices[env_ids], 2] = 0.3
@@ -788,10 +794,10 @@ class LowLevelGame(BaseTask):
         max_ang = np.pi
         min_rad = 2.0
         max_rad = 6.0
-        rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
+        self.rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
         rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_rad, max_rad)
-        self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(rand_angle),
-                                           rand_radius * torch.sin(rand_angle),
+        self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(self.rand_angle),
+                                           rand_radius * torch.sin(self.rand_angle),
                                            torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)), dim=-1)
 
         # import matplotlib.pyplot as plt
@@ -961,6 +967,9 @@ class LowLevelGame(BaseTask):
             for i in range(self.num_envs):
                 # just draw the robot's FOV
                 self._draw_fov_rays(env_id=i)
+                self._draw_world_frame(env_id=i)
+                self._draw_robot_frame(env_id=i)
+                self._draw_rel_pos(env_id=i)
             return
 
         # draw height lines
@@ -969,6 +978,7 @@ class LowLevelGame(BaseTask):
         sphere_geom_yellow = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
         sphere_geom_orange = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(0.95, 0.5, 0.2))
         sphere_geom_red = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1,0,0))
+
         for i in range(self.num_envs):
             # draw the measured points underneath the robot
             base_pos = (self.root_states[self.robot_indices[i], :3]).cpu().numpy() #(self.root_states[i, :3]).cpu().numpy()
@@ -993,39 +1003,92 @@ class LowLevelGame(BaseTask):
 
             # just draw the robot's FOV
             self._draw_fov_rays(env_id=i)
+            self._draw_world_frame(env_id=i)
+            self._draw_robot_frame(env_id=i)
+
+    def _draw_rel_pos(self, env_id):
+        """Draws the relative position in the robot's coordinate frame."""
+        base_pos = self.root_states[self.robot_indices[env_id], :3].clone()
+        agent_pos = self.root_states[self.agent_indices[env_id], :3].clone()
+        rel_pos_global = (agent_pos - base_pos)
+        rel_pos_global = rel_pos_global.unsqueeze(0)
+        base_quat_global = self.root_states[self.robot_indices[env_id], 3:7].clone()
+        base_quat_global = base_quat_global.unsqueeze(0)
+
+        rel_pos_local = legged_gym.utils.math.quat_rotate(base_quat_global, rel_pos_global)
+
+        ps = gymapi.Vec3(base_pos[0], base_pos[1], base_pos[2])
+        pe = gymapi.Vec3(base_pos[0] + rel_pos_global[:, 0], base_pos[1] + rel_pos_global[:, 1], base_pos[2] + rel_pos_global[:, 2])
+        gymutil.draw_line(ps, pe, gymapi.Vec3(1, 1, 0), self.gym, self.viewer, self.envs[env_id])
+
+    def _draw_robot_frame(self, env_id):
+        """Draws the robot frame."""
+        base_pos = self.root_states[self.robot_indices[env_id], :3].clone()
+        base_quat_global = self.root_states[self.robot_indices[env_id], 3:7].clone()
+        base_quat_global = base_quat_global.unsqueeze(0)
+        xpt_global = torch.tensor([1., 0., 0.], device=self.device).unsqueeze(0)
+        ypt_global = torch.tensor([0., 1., 0.], device=self.device).unsqueeze(0)
+        zpt_global = torch.tensor([0., 0., 1.], device=self.device).unsqueeze(0)
+
+        xpt_local = quat_rotate(base_quat_global, xpt_global)
+        ypt_local = quat_rotate(base_quat_global, ypt_global)
+        zpt_local = quat_rotate(base_quat_global, zpt_global)
+
+        pb = gymapi.Vec3(base_pos[0], base_pos[1], base_pos[2])
+        px = gymapi.Vec3(base_pos[0] + xpt_local[:, 0], base_pos[1] + xpt_local[:, 1], base_pos[2] + xpt_local[:, 2])
+        py = gymapi.Vec3(base_pos[0] + ypt_local[:, 0], base_pos[1] + ypt_local[:, 1], base_pos[2] + ypt_local[:, 2])
+        pz = gymapi.Vec3(base_pos[0] + zpt_local[:, 0], base_pos[1] + zpt_local[:, 1], base_pos[2] + zpt_local[:, 2])
+
+        gymutil.draw_line(pb, px, gymapi.Vec3(1, 0, 0), self.gym, self.viewer, self.envs[env_id])
+        gymutil.draw_line(pb, py, gymapi.Vec3(0, 1, 0), self.gym, self.viewer, self.envs[env_id])
+        gymutil.draw_line(pb, pz, gymapi.Vec3(0, 0, 1), self.gym, self.viewer, self.envs[env_id])
+
+    def _draw_world_frame(self, env_id):
+        """Draws the world frame."""
+        origin = gymapi.Vec3(0, 0,0)
+        xaxis = gymapi.Vec3(5, 0,0)
+        yaxis = gymapi.Vec3(0,5, 0)
+        zaxis = gymapi.Vec3(0, 0, 5)
+        gymutil.draw_line(origin, xaxis, gymapi.Vec3(1, 0, 0), self.gym, self.viewer, self.envs[env_id])
+        gymutil.draw_line(origin, yaxis, gymapi.Vec3(0, 1, 0), self.gym, self.viewer, self.envs[env_id])
+        gymutil.draw_line(origin, zaxis, gymapi.Vec3(0, 0, 1), self.gym, self.viewer, self.envs[env_id])
 
     def _draw_fov_rays(self, env_id):
         """Draws the extents of the robot's FOV."""
         base_pos = (self.root_states[self.robot_indices[env_id], :3]).cpu().numpy()
+        base_quat = self.base_quat[env_id].clone().unsqueeze(0)
         # draw the robot's FOV
         half_fov = torch.zeros(1, 1, device=self.device)
         half_fov[:] = self.robot_fov / 2.
-        p2_pt = self.forward_vec[env_id].clone()
-        p2_pt[0] += 2.  # extent of the drawn line(s)
+        p2_pt = self.forward_vec[env_id].clone().unsqueeze(0)
+        p2_pt[:, 0] += 2.  # extent of the drawn line(s)
 
         # get quaternion representing rotation about around the z-axis by +/- the half_fov angle
-        pos_quat = quat_from_angle_axis(half_fov, self.z_unit_tensor[env_id])  # rotate about z-axis
-        neg_quat = quat_from_angle_axis(-half_fov, self.z_unit_tensor[env_id])
+        pos_quat = quat_from_angle_axis(half_fov, self.z_unit_tensor[env_id]).squeeze(0)  # rotate about z-axis
+        neg_quat = quat_from_angle_axis(-half_fov, self.z_unit_tensor[env_id]).squeeze(0)
 
         # rotate unit vector around the z-axis by +/- the half_fov angle
-        p2_pt_pos = quat_apply_yaw(pos_quat, p2_pt)
-        p2_pt_neg = quat_apply_yaw(neg_quat, p2_pt)
+        # import pdb; pdb.set_trace()
+        p2_pt_pos = quat_rotate(pos_quat, p2_pt)
+        p2_pt_neg = quat_rotate(neg_quat, p2_pt)
 
         # rotate the resultant vectors by the robot base quaternion
-        p2_base_pos = quat_apply_yaw(self.base_quat[env_id], p2_pt_pos).cpu().numpy()
-        p2_base_neg = quat_apply_yaw(self.base_quat[env_id], p2_pt_neg).cpu().numpy()
-        p2_base_fwd = quat_apply_yaw(self.base_quat[env_id], torch.tensor([0.5, 0.0, 0.0], device=self.device)).cpu().numpy()
+        p2_base_pos = quat_rotate(base_quat, p2_pt_pos).cpu().numpy()
+        p2_base_neg = quat_rotate(base_quat, p2_pt_neg).cpu().numpy()
+        p2_base_fwd = quat_rotate(base_quat,
+                                  torch.tensor([0.5, 0.0, 0.0], device=self.device).unsqueeze(0)).cpu().numpy()
 
         # convert to gym Vectors for plotting
         color_r = gymapi.Vec3(1, 0, 0)
         color_b = gymapi.Vec3(0, 0, 1)
+        color_o = gymapi.Vec3(0.95, 0.5, 0.2)
         p1 = gymapi.Vec3(base_pos[0], base_pos[1], base_pos[2])
-        p2_pos = gymapi.Vec3(base_pos[0] + p2_base_pos[0], base_pos[1] + p2_base_pos[1], base_pos[2])
-        p2_neg = gymapi.Vec3(base_pos[0] + p2_base_neg[0], base_pos[1] + p2_base_neg[1], base_pos[2])
-        p2_fwd = gymapi.Vec3(base_pos[0] + p2_base_fwd[0], base_pos[1] + p2_base_fwd[1], base_pos[2])
-        gymutil.draw_line(p1, p2_pos, color_r, self.gym, self.viewer, self.envs[env_id])
-        gymutil.draw_line(p1, p2_neg, color_r, self.gym, self.viewer, self.envs[env_id])
-        gymutil.draw_line(p1, p2_fwd, color_b, self.gym, self.viewer, self.envs[env_id])
+        p2_pos = gymapi.Vec3(base_pos[0] + p2_base_pos[:, 0], base_pos[1] + p2_base_pos[:, 1], base_pos[2])
+        p2_neg = gymapi.Vec3(base_pos[0] + p2_base_neg[:, 0], base_pos[1] + p2_base_neg[:, 1], base_pos[2])
+        p2_fwd = gymapi.Vec3(base_pos[0] + p2_base_fwd[:, 0], base_pos[1] + p2_base_fwd[:, 1], base_pos[2])
+        gymutil.draw_line(p1, p2_pos, color_o, self.gym, self.viewer, self.envs[env_id])
+        gymutil.draw_line(p1, p2_neg, color_o, self.gym, self.viewer, self.envs[env_id])
+        # gymutil.draw_line(p1, p2_fwd, color_b, self.gym, self.viewer, self.envs[env_id])
 
     def _init_height_points(self):
         """ Returns points at which the height measurments are sampled (in base frame)

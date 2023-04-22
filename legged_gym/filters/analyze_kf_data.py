@@ -17,7 +17,10 @@ if __name__ == '__main__':
 
 	# bla = 'kf_data_09_03_2023-12-52-13_300.pickle'
 
-	bla = 'kf_data_04_04_2023-15-32-07_500.pickle' #'kf_data_03_04_2023-10-08-19_400.pickle' #'kf_data_01_04_2023-21-23-23_200.pickle' #'kf_data_01_04_2023-14-41-06_200.pickle'
+	# bla = 'kf_data_21_04_2023-09-57-37_200.pickle' # xvel
+	# bla = 'kf_data_21_04_2023-09-59-55_200.pickle' # yvel
+	# bla = 'kf_data_21_04_2023-10-02-07_200.pickle'# angvel
+	bla = 'kf_data_22_04_2023-09-17-38_100.pickle'
 
 	filename = path + '/data/' + bla 
 	with open(filename, "rb") as f:
@@ -29,6 +32,8 @@ if __name__ == '__main__':
 	z_traj = data_dict["z_traj"]
 	P_traj = data_dict["P_traj"]
 	pred_traj = None
+
+	# print(real_traj[:, -1])
 
 	print("shape of real_traj: ", real_traj.shape)
 	print("shape of est_traj: ", est_traj.shape)

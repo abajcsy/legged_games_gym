@@ -45,7 +45,7 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 6
+    max_num_envs = 1
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
 
     # # prepare environment
@@ -57,11 +57,15 @@ def play_dec_game(args):
 
     # load policies of agent and robot
     evol_checkpoint = 0
-    learn_checkpoint = 1400
+    # learn_checkpoint = 400
+    learn_checkpoint = 1000
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = True
-    train_cfg.runner.load_run = 'Apr03_15-16-53_' # Policy without obstacles, in 'dec_high_level_game'
-    # train_cfg.runner.load_run = 'Apr18_13-51-51_'
+    # train_cfg.runner.load_run = 'Apr03_15-16-53_' # Policy without obstacles, in 'dec_high_level_game'
+    # train_cfg.runner.load_run = 'Apr21_19-16-43_' # true rel yaw local, FULL FOV
+    train_cfg.runner.load_run = 'Apr21_23-20-10_' # KF rel yaw local, FULL FOV
+    # train_cfg.runner.load_run = 'Apr21_17-17-14_' # local rel pos, ZED FOV
+    # train_cfg.runner.load_run = 'Apr21_17-39-32_' # local rel pos, FULL FOV
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT

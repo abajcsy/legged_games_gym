@@ -54,3 +54,36 @@ def torch_rand_sqrt_float(lower, upper, shape, device):
     r = torch.where(r<0., -torch.sqrt(-r), torch.sqrt(r))
     r =  (r + 1.) / 2.
     return (upper - lower) * r + lower
+
+def quat_rotate(rot, vec):
+    """
+    Rotate a 3D vector with the 3D rotation
+    """
+    other_q = torch.cat([vec, torch.zeros_like(vec[..., :1])], dim=-1)
+    return quat_imaginary(quat_mul(quat_mul(rot, other_q), quat_conjugate(rot)))
+
+def quat_conjugate(x):
+    """
+    quaternion with its imaginary part negated
+    """
+    return torch.cat([-x[..., :3], x[..., 3:]], dim=-1)
+
+def quat_imaginary(x):
+    """
+    imaginary components of the quaternion
+    """
+    return x[..., :3]
+
+def quat_mul(a, b):
+    """
+    quaternion multiplication
+    """
+    x1, y1, z1, w1 = a[..., 0], a[..., 1], a[..., 2], a[..., 3]
+    x2, y2, z2, w2 = b[..., 0], b[..., 1], b[..., 2], b[..., 3]
+
+    w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+    x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+    y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
+    z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
+
+    return torch.stack([x, y, z, w], dim=-1)

@@ -11,7 +11,13 @@ from datetime import datetime
 import os
 
 class KalmanFilter(object):
-    def __init__(self, dt, num_states, num_actions, num_envs, state_type="pos_ang", device='cpu', dtype=torch.float64):
+    def __init__(self, dt,
+                 num_states,
+                 num_actions,
+                 num_envs,
+                 state_type="pos_ang",
+                 device='cpu',
+                 dtype=torch.float64):
         self.dt = dt
         self.num_states = num_states
         self.num_actions = num_actions
@@ -159,6 +165,10 @@ class KalmanFilter(object):
         # Measurement residual
         #   y = z - H * xhat
         y = (z - torch.bmm(self.H_tensor, self.xhat.unsqueeze(-1)).squeeze(-1))
+
+        if self.state_type == "pos_ang":
+            # need to wrap the angular component of state estimate to [-pi,pi]
+            y[env_ids, -1] = self._wrap_to_pi(y[env_ids, -1])
         
         # Get a posteriori estimate using measurement z
         #   xhat = xhat + K * y

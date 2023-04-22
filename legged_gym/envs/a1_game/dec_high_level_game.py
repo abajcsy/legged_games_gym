@@ -30,6 +30,9 @@ from datetime import datetime
 
 from rsl_rl.runners.low_level_policy_runner import LLPolicyRunner
 
+import legged_gym.utils.math
+
+
 class DecHighLevelGame():
     def __init__(self, cfg, sim_params, physics_engine, sim_device, headless):
         """ Parses the provided config file,
@@ -175,13 +178,14 @@ class DecHighLevelGame():
         if self.cfg.robot_sensing.prey_curriculum:
             max_ang = self.cfg.robot_sensing.prey_angs[self.prey_curr_idx]
             min_ang = -max_ang
-            rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
+            self.rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
             rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(self.min_rad, self.max_rad)
-            self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(rand_angle),
-                                               rand_radius * torch.sin(rand_angle),
+            self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(self.rand_angle),
+                                               rand_radius * torch.sin(self.rand_angle),
                                                torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)
                                                ), dim=-1)
             self.ll_env.agent_offset_xyz = self.agent_offset_xyz
+            self.ll_env.rand_angle = self.rand_angle
 
             # reset the low-level environment with the new initial prey positions 
             self.ll_env._reset_root_states(torch.arange(self.num_envs, device=self.device))
@@ -249,7 +253,7 @@ class DecHighLevelGame():
         # self.obs_buf_robot = torch.zeros(self.num_envs, self.num_obs_robot, device=self.device, dtype=torch.float)
         # self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
         self.obs_buf_robot = torch.zeros(self.num_envs, self.num_obs_robot, device=self.device, dtype=torch.float)
-        self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
+        # self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
         self.rew_buf_robot = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
 
         # setup the low-level observation buffer
@@ -372,6 +376,8 @@ class DecHighLevelGame():
         # self.r_last = None
         # self.r_last_proj = None
 
+        self.command_clipping = self.cfg.commands.command_clipping
+
         print("[DecHighLevelGame] initializing buffers...")
         self._init_buffers()
         print("[DecHighLevelGame] preparing AGENT reward functions...")
@@ -398,19 +404,22 @@ class DecHighLevelGame():
         """
 
         # TODO: HACK!! This is for debugging.
-        # command_agent *= 0
+        # if self.agent_dyn_type == "integrator":
+        #     command_agent = self._straight_line_command_agent()
+        # elif self.agent_dyn_type == "dubins":
+        #     command_agent = self._weaving_command_agent()
+        command_agent *= 0
         # command_robot *= 0
-        if self.agent_dyn_type == "integrator":
-            command_agent = self._straight_line_command_agent()
-        elif self.agent_dyn_type == "dubins":
-            command_agent = self._weaving_command_agent()
+        # command_robot[:, 1] = -1
+        # command_robot[:,-1] = 0.3
 
-        # rel_yaw = self.get_rel_yaw_global_robot()
-        # robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
-        # _, _, robot_yaw = get_euler_xyz(robot_base_quat)
-        # robot_yaw = wrap_to_pi(robot_yaw)
+        # rel_pos_global = self.ll_env.root_states[self.ll_env.agent_indices, :3] - self.ll_env.root_states[self.ll_env.robot_indices, :3]
+        # rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+        # rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0])
         #
-        # ang_error = wrap_to_pi(command_robot[:, 0] - robot_yaw)
+        # # command_robot[:, -1] = 0.5 * self.kf.xhat[:, -1]
+        # print("true rel yaw (local): ", rel_yaw_local)
+        # print("estimated rel yaw (local): ", self.kf.xhat[:, -1])
 
         # command_robot_3d = torch.zeros(self.num_envs, 3, device=self.device, requires_grad=False)
         # command_robot_3d[:, 2] = command_robot[:, 0] #ang_error.squeeze(-1)
@@ -427,16 +436,22 @@ class DecHighLevelGame():
         # print("[RAW] command agent: ", command_agent)
 
         # clip the robot and agent's commands
-        command_robot = self.clip_command_robot(command_robot)
-        # command_agent = self.clip_command_agent(command_agent)
+        if self.command_clipping:
+            command_robot = self.clip_command_robot(command_robot)
+            # command_agent = self.clip_command_agent(command_agent)
 
         # print("[CLIPPED] command robot: ", command_robot)
 
         # NOTE: low-level policy requires 4D control
         # update the low-level simulator command since it deals with the robot
-        ll_env_command_robot = torch.cat((command_robot,
+        ll_env_command_robot = torch.cat((torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
+                                         torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
+                                          command_robot,
                                           torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)), # heading
                                           dim=-1)
+        # ll_env_command_robot = torch.cat((command_robot,
+        #                                   torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)), # heading
+        #                                   dim=-1)
         self.ll_env.commands = ll_env_command_robot
 
         # record the last robot state before simulating physics
@@ -482,30 +497,28 @@ class DecHighLevelGame():
         return command_robot
 
     def _straight_line_command_robot(self, command_robot):
-        rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        command_robot[:, 0] = torch.clip(rel_agent_pos_xyz[:, 0], min=self.command_ranges["lin_vel_x"][0],
-                                         max=self.command_ranges["lin_vel_x"][1])
-        command_robot[:, 1] = torch.clip(rel_agent_pos_xyz[:, 1], min=self.command_ranges["lin_vel_y"][0],
-                                         max=self.command_ranges["lin_vel_y"][1])
+        rel_pos_global = self.agent_pos[:, :3] - self.robot_states[:, :3]
+        rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+        command_robot[:, :2] = torch.clip(rel_pos_local[:, :2], min=-1, max=1)
+        # command_robot[:, 0] = torch.clip(rel_pos_local[:, 0], min=self.command_ranges["lin_vel_x"][0],
+        #                                  max=self.command_ranges["lin_vel_x"][1])
+        # command_robot[:, 1] = torch.clip(rel_pos_local[:, 1], min=self.command_ranges["lin_vel_y"][0],
+        #                                  max=self.command_ranges["lin_vel_y"][1])
         command_robot[:, 2] = 0
 
         return command_robot
 
     def _turn_and_pursue_command_robot(self, command_robot):
-        rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
-        _, _, robot_yaw = get_euler_xyz(robot_base_quat)
-        robot_yaw = wrap_to_pi(robot_yaw)
-
-        rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
-        rel_yaw_global = wrap_to_pi(rel_yaw_global)
+        rel_pos_global = self.agent_pos[:, :3] - self.robot_states[:, :3]
+        rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+        rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0])
 
         for env_idx in range(self.num_envs):
-            if torch.abs(rel_yaw_global[env_idx]) < 0.15: # pursue
+            if torch.abs(rel_yaw_local[env_idx]) < 0.15: # pursue
                 # command_robot[env_idx, 0] = 1
                 # command_robot[env_idx, 1] = 0
                 # command_robot[env_idx, 2] = 0
-                command_robot[env_idx, :2] = -1 * torch.clip(rel_agent_pos_xyz[env_idx, :2], min=-1, max=1)
+                command_robot[env_idx, :2] = 1 * torch.clip(rel_pos_local[env_idx, :2], min=-1, max=1)
                 command_robot[env_idx, 2] = 0
             else: # turn
                 command_robot[env_idx, 0] = 0.
@@ -759,23 +772,23 @@ class DecHighLevelGame():
 
         # reset robot buffers
         reset_robot_obs = torch.zeros(len(env_ids), self.num_obs_robot, device=self.device, requires_grad=False)
-        reset_robot_obs[:, self.pos_idxs_robot] = self.MAX_REL_POS # only the initial relative position is reset different
+        # reset_robot_obs[:, self.pos_idxs_robot] = self.MAX_REL_POS # only the initial relative position is reset different
         self.obs_buf_robot[env_ids, :] = reset_robot_obs
-        # self.obs_buf_robot[env_ids, :] = self.MAX_REL_POS      # reset the robot's rel_agent_pos to max relative position
-        # self.obs_buf_robot[env_ids, -2:] = 0                    # reset the robot's sense booleans to zero
 
         # reset the kalman filter
         if self.num_states_kf == 4:
-            rel_pos = self.agent_pos[:, :3] - self.robot_states[:, :3]
+            rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
+            rel_pos_local = self.global_to_robot_frame(rel_pos_global)
         elif self.num_states_kf == 3:
-            rel_pos = self.agent_pos[:, :2] - self.robot_states[:, :2]
+            rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
+            rel_pos_local = self.global_to_robot_frame(rel_pos_global)[:, :2]
         else:
             print("[DecHighLevelGame: reset_idx] ERROR: self.num_states_kf", self.num_states_kf, " is not supported.")
             return
 
-        rel_yaw_global = self.get_rel_yaw_global_robot()
-        rel_state = torch.cat((rel_pos, rel_yaw_global), dim=-1)
-        
+        rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
+        rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
+
         # ---- choose right filter calls ---- #
         if self.filter_type == "kf":
             xhat0 = self.kf.sim_measurement(rel_state)
@@ -894,20 +907,122 @@ class DecHighLevelGame():
         # print("high level rewards + low-level rewards: ", self.rew_buf)
 
     def compute_observations_robot(self, command_robot, command_agent):
-        """ Computes observations of the robot robot
+        """ Computes observations of the robot
         """
 
         sense_obstacles = self.cfg.terrain.fov_measure_heights
+        self.compute_observations_ang_only_robot(command_robot=command_robot, limited_fov=True)          # OBS: (theta_rel)
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
         # self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
-        self.compute_observations_KF_robot(command_robot, command_agent,
-                                           limited_fov=True,
-                                           sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
+        # self.compute_observations_KF_robot(command_robot, command_agent,
+        #                                    limited_fov=True,
+        #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
+
+    def compute_observations_ang_only_robot(self, command_robot=None, limited_fov=False):
+        """ Computes observations of the agent with full FOV
+        """
+        if command_robot is None:
+            # from robot's POV, get the relative position to the agent
+            rel_pos_global = self.agent_pos[:, :3] - self.robot_states[:, :3]
+            rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+            rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
+            self.obs_buf_robot = rel_yaw_local
+        else:
+            actions_kf_r = command_robot[:, :self.num_actions_kf_r]
+
+            # ---- predict a priori state estimate  ---- #
+            if self.filter_type == "kf":
+                self.kf.predict(actions_kf_r)
+                rel_state_a_priori = self.kf.xhat
+
+            if self.num_states_kf == 4:
+                rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
+                rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+
+            rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
+            rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
+
+            # debug_geq = torch.ge(torch.abs(rel_yaw_local), 3.1)
+            # debug_bool = torch.any(debug_geq, dim=1)
+            # if torch.abs(rel_yaw_local[0, 0]) > 3.02:
+            #     # print(command_robot[:, -1])
+            #     import pdb; pdb.set_trace()
+
+            # simulate getting a noisy measurement
+            if limited_fov is True:
+                half_fov = self.robot_full_fov / 2.
+
+                # find environments where agent is visible
+                leq = torch.le(torch.abs(rel_yaw_local), half_fov)
+                fov_bool = torch.any(leq, dim=1)
+                # fov_bool = torch.any(torch.abs(rel_yaw_local) <= half_fov, dim=1)
+                visible_env_ids = fov_bool.nonzero(as_tuple=False).flatten()
+            else:
+                # if full FOV, then always get measurement and do update
+                visible_env_ids = torch.arange(self.num_envs, device=self.device)
+
+            # ---- perform Kalman update to only environments that can get measurements ---- #
+            if self.filter_type == "kf":
+                z = self.kf.sim_measurement(rel_state)
+                self.kf.correct(z, env_ids=visible_env_ids)
+                rel_state_a_posteriori = self.kf.xhat.clone()
+                covariance_a_posteriori = self.kf.P_tensor.clone()
+
+            # print("true rel yaw local: ", rel_yaw_local)
+            # print("est. rel yaw local: ", rel_state_a_posteriori[:, -1].unsqueeze(-1))
+
+            self.obs_buf_robot = self.kf.xhat[:, -1].clone().unsqueeze(-1)
+
+            # ------------------------------------------------------------------- #
+            # =========================== Book Keeping ========================== #
+            # ------------------------------------------------------------------- #
+            if self.save_kf_data:
+                # record real data
+                if self.real_traj is None:
+                    self.real_traj = np.array([rel_state.cpu().numpy()])
+                else:
+                    self.real_traj = np.append(self.real_traj, [rel_state.cpu().numpy()], axis=0)
+
+                # record state estimate
+                if self.est_traj is None:
+                    self.est_traj = np.array([rel_state_a_posteriori.cpu().numpy()])
+                else:
+                    self.est_traj = np.append(self.est_traj, [rel_state_a_posteriori.cpu().numpy()], axis=0)
+
+                # record state covariance
+                if self.P_traj is None:
+                    self.P_traj = np.array([covariance_a_posteriori.cpu().numpy()])
+                else:
+                    self.P_traj = np.append(self.P_traj, [covariance_a_posteriori.cpu().numpy()], axis=0)
+
+                # record measurements
+                if self.z_traj is None:
+                    self.z_traj = np.array([z.cpu().numpy()])
+                else:
+                    self.z_traj = np.append(self.z_traj, [z.cpu().numpy()], axis=0)
+
+                if self.data_save_tstep % self.data_save_interval == 0:
+                    print("Saving state estimation trajectory at tstep ", self.data_save_tstep, "...")
+                    now = datetime.now()
+                    dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
+                    filename = "kf_data_" + dt_string + "_" + str(self.data_save_tstep) + ".pickle"
+                    data_dict = {"real_traj": self.real_traj,
+                                 "est_traj": self.est_traj,
+                                 "z_traj": self.z_traj,
+                                 "P_traj": self.P_traj,
+                                 "kf": self.kf}
+                    with open(filename, 'wb') as handle:
+                        pickle.dump(data_dict, handle)
+
+                # advance timestep
+                self.data_save_tstep += 1
+            # ------------------------------------------------------------------- #
+
 
     def compute_observations_pos_robot(self):
         """ Computes observations of the agent with full FOV
@@ -989,32 +1104,47 @@ class DecHighLevelGame():
             self.kf.predict(actions_kf_r)
             rel_state_a_priori = self.kf.filter._belief_mean
 
-        # from robot's POV, get its sensing
-        rel_yaw_global = self.get_rel_yaw_global_robot()
-
         if self.num_states_kf == 4:
-            rel_pos = self.agent_pos[:, :3] - self.robot_states[:, :3]
+            rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
+            rel_pos_local = self.global_to_robot_frame(rel_pos_global)
         elif self.num_states_kf == 3:
-            rel_pos = self.agent_pos[:, :2] - self.robot_states[:, :2]
+            rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
+            rel_pos_local = self.global_to_robot_frame(rel_pos_global)[:, :2]
         else:
             print("[DecHighLevelGame: reset_idx] ERROR: self.num_states_kf", self.num_states_kf, " is not supported.")
             return
 
-        # simulate getting a noisy measurement
-        rel_state = torch.cat((rel_pos, rel_yaw_global), dim=-1)
+        # from robot's POV, get its sensing
+        # rel_yaw_global = self.get_rel_yaw_global_robot()
+        rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
 
+        # debug_geq = torch.ge(torch.abs(rel_yaw_local), 3.1)
+        # debug_bool = torch.any(debug_geq, dim=1)
+        # if torch.abs(self.kf.xhat[0, -1]) > 3.1:
+        #     print(command_robot[:, -1])
+        #     import pdb; pdb.set_trace()
+
+        # print("agent pos global: ", self.agent_pos[:, :3])
+        # print("robot pos global: ", self.robot_states[:, :3])
+        # print("rel_pos (global): ", rel_pos_global)
+        # print("rel_pos (local): ", rel_pos_local)
+        # print("rel_yaw (local): ", rel_yaw_local)
+
+        rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
+        # rel_state = torch.cat((rel_pos_global, rel_yaw_global), dim=-1)
+
+        # simulate getting a noisy measurement
         if limited_fov is True:
             half_fov = self.robot_full_fov / 2.
 
-            # find environments where robot is visible
-            leq = torch.le(torch.abs(rel_yaw_global), half_fov)
+            # find environments where agent is visible
+            leq = torch.le(torch.abs(rel_yaw_local), half_fov)
             fov_bool = torch.any(leq, dim=1)
-            # fov_bool = torch.any(torch.abs(rel_yaw_global) <= half_fov, dim=1)
+            # fov_bool = torch.any(torch.abs(rel_yaw_local) <= half_fov, dim=1)
             visible_env_ids = fov_bool.nonzero(as_tuple=False).flatten()
         else:
             # if full FOV, then always get measurement and do update
             visible_env_ids = torch.arange(self.num_envs, device=self.device)
-
         
         # ---- perform Kalman update to only environments that can get measurements ---- #
         if self.filter_type == "kf":
@@ -1103,6 +1233,13 @@ class DecHighLevelGame():
             # advance timestep
             self.data_save_tstep += 1
         # ------------------------------------------------------------------- #
+
+    def global_to_robot_frame(self, global_vec):
+        """Transforms (xyz) global vector to robot's local coordinate frame."""
+        robot_base_quat_global = self.ll_env.root_states[self.ll_env.robot_indices, 3:7].clone()
+        # local_vec = quat_rotate(robot_base_quat_global, global_vec)
+        local_vec = quat_rotate_inverse(robot_base_quat_global, global_vec)
+        return local_vec
 
     def expand_with_zeros_at_dim(self, tensor_in, dim):
         """Expands the tensor_in by putting zeros at the old "dim" location.
@@ -1602,13 +1739,14 @@ class DecHighLevelGame():
             self.prey_curr_idx = min(self.prey_curr_idx, len(self.cfg.robot_sensing.prey_angs)-1)
             max_ang = self.cfg.robot_sensing.prey_angs[self.prey_curr_idx]
             min_ang = -max_ang
-            rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
+            self.rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
             rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(self.min_rad, self.max_rad)
-            self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(rand_angle),
-                                               rand_radius * torch.sin(rand_angle),
+            self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(self.rand_angle),
+                                               rand_radius * torch.sin(self.rand_angle),
                                                torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)
                                                ), dim=-1)
             self.ll_env.agent_offset_xyz = self.agent_offset_xyz
+            self.ll_env.rand_angle = self.rand_angle
 
             print("[DecHighLevelGame] in _update_prey_curriculum():")
             print("                   training iter num: ", self.training_iter_num)
