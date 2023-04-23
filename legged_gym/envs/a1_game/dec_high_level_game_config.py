@@ -25,6 +25,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         num_actions_agent = 2       # other agent
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
+        send_BC_actions = True      # send optimal robot actions for the BC loss in the algorithm
         episode_length_s = 20       # episode length in seconds
         capture_dist = 0.8          # if the two agents are closer than this dist, they are captured
         agent_dyn_type = "integrator"   # sets the agent's dynamics type: "dubins" or "integrator"
@@ -86,9 +87,9 @@ class DecHighLevelGameCfg( BaseConfig ):
         heading_command = False         # if true: compute ang vel command from heading error
         command_clipping = False        # if true: clip robot + agent commands to the ranges below
         class ranges:
-            lin_vel_x = [0, 100000]#[-1.0, 1.0]     # min max [m/s]
+            lin_vel_x = [0, 1] #[-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [0, 0] #[-1.0, 1.0]     # min max [m/s]
-            ang_vel_yaw = [-3.14, 3.14]       # min max [rad/s]
+            ang_vel_yaw = [-1,1] #[-3.14, 3.14]       # min max [rad/s]
             heading = [-3.14, 3.14]
             agent_lin_vel_x = [-0.5, 0.5] # min max [m/s]
             agent_lin_vel_y = [-0.5, 0.5] # min max [m/s]
@@ -208,6 +209,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         use_clipped_value_loss = True
         clip_param = 0.2
         entropy_coef = 0. #0.01
+        bc_coef = 0.01
         num_learning_epochs = 5
         num_mini_batches = 4  # mini batch size = num_envs*nsteps / nminibatches
         learning_rate = 1.e-3  # 5.e-4

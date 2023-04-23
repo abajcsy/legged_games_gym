@@ -379,6 +379,12 @@ class DecHighLevelGame():
 
         self.command_clipping = self.cfg.commands.command_clipping
 
+        # maintains the true state (i.e. the "perfect" obervation) of the robot
+        self.true_obs_robot = torch.zeros(self.num_envs, self.num_obs_robot, device=self.device, requires_grad=False)
+
+        # "optimal" robot actions for BC loss in PPO
+        self.bc_actions_robot = torch.zeros(self.num_envs, self.num_actions_robot, device=self.device, requires_grad=False)
+
         print("[DecHighLevelGame] initializing buffers...")
         self._init_buffers()
         print("[DecHighLevelGame] preparing AGENT reward functions...")
@@ -404,6 +410,9 @@ class DecHighLevelGame():
             rew_buf_agent, rew_buf_robot, reset_buf, extras
         """
 
+        # record the "optimal" actions for the robot
+        self.bc_actions_robot = self._p_ctrl_robot()
+
         # TODO: HACK!! This is for debugging.
         # if self.agent_dyn_type == "integrator":
         #     command_agent = self._straight_line_command_agent()
@@ -414,11 +423,6 @@ class DecHighLevelGame():
         # command_robot[:, 1] = -1
         # command_robot[:,-1] = 0.3
 
-        # rel_pos_global = self.ll_env.root_states[self.ll_env.agent_indices, :3] - self.ll_env.root_states[self.ll_env.robot_indices, :3]
-        # rel_pos_local = self.global_to_robot_frame(rel_pos_global)
-        # rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0])
-        #
-        # # command_robot[:, -1] = 0.5 * self.kf.xhat[:, -1]
         # print("true rel yaw (local): ", rel_yaw_local)
         # print("estimated rel yaw (local): ", self.kf.xhat[:, -1])
 
@@ -427,6 +431,7 @@ class DecHighLevelGame():
         # command_robot = self._straight_line_command_augmented_robot(command_robot)
         # command_robot = self._straight_line_command_robot(command_robot)
         # command_robot = self._turn_and_pursue_command_robot(command_robot)
+        # command_robot = self._p_ctrl_robot(command_robot)
         # TODO: HACK!! This is for debugging.
 
         # rel_pos = self.agent_pos[:, :3] - self.robot_states[:, :3]
@@ -483,6 +488,18 @@ class DecHighLevelGame():
         self.weaving_tstep += 1
 
         return self.obs_buf_agent, self.obs_buf_robot, self.privileged_obs_buf_agent, self.privileged_obs_buf_robot, self.rew_buf_agent, self.rew_buf_robot, self.reset_buf, self.extras
+
+    def _p_ctrl_robot(self):
+        p_cmd_robot = torch.zeros(self.num_envs, self.num_actions_robot, device=self.device, requires_grad=False)
+        rel_pos_global = self.agent_pos[:, :3] - self.robot_states[:, :3]
+        rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+        rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0])
+
+        p_cmd_robot[:, 0] = torch.clip(rel_pos_local[:, 0], min=0, max=2)
+        p_cmd_robot[:, 1] = 0
+        p_cmd_robot[:, -1] = torch.clip(rel_yaw_local, min=-3.14, max=3.14)
+
+        return p_cmd_robot
 
 
     def _straight_line_command_augmented_robot(self, command_robot_1d):
@@ -562,8 +579,8 @@ class DecHighLevelGame():
         #     command_robot[:, 0] = torch.clip(command_robot[:, 0], min=self.command_ranges["ang_vel_yaw"][0],
         #                                      max=self.command_ranges["ang_vel_yaw"][1])
         # clip the robot's commands
-        # command_robot[:, 0] = torch.clip(command_robot[:, 0], min=self.command_ranges["lin_vel_x"][0], max=self.command_ranges["lin_vel_x"][1])
-        command_robot[:, 0] = torch.abs(command_robot[:, 0])
+        command_robot[:, 0] = torch.clip(command_robot[:, 0], min=self.command_ranges["lin_vel_x"][0], max=self.command_ranges["lin_vel_x"][1])
+        # command_robot[:, 0] = torch.abs(command_robot[:, 0])
         command_robot[:, 1] = torch.clip(command_robot[:, 1], min=self.command_ranges["lin_vel_y"][0], max=self.command_ranges["lin_vel_y"][1])
         command_robot[:, 2] = torch.clip(command_robot[:, 2], min=self.command_ranges["ang_vel_yaw"][0], max=self.command_ranges["ang_vel_yaw"][1])
 
@@ -770,6 +787,9 @@ class DecHighLevelGame():
         self._update_agent_states()
         self.agent_heading[env_ids] = self.ll_env.init_agent_heading[env_ids].clone()
 
+        # reset the optimal robot actions
+        self.bc_actions_robot[env_ids, :] = 0.
+
         # reset agent buffers
         self.obs_buf_agent[env_ids, :] = -self.MAX_REL_POS
         self.obs_buf_agent[env_ids, -2:] = 0.
@@ -830,6 +850,9 @@ class DecHighLevelGame():
         # send timeout info to the algorithm
         if self.cfg.env.send_timeouts:
             self.extras["time_outs"] = self.time_out_buf
+
+        if self.cfg.env.send_BC_actions:
+            self.extras["bc_actions"] = self.bc_actions_robot
 
     def reset(self):
         """ Reset all robots"""
@@ -1200,6 +1223,10 @@ class DecHighLevelGame():
 
         self.obs_buf_robot = torch.cat((scaled_rel_state_a_posteriori,
                                         P_flattened
+                                        ), dim=-1)
+
+        self.true_obs_robot = torch.cat((rel_state,
+                                        torch.zeros(self.num_envs, P_flattened.shape[1], device=self.device)
                                         ), dim=-1)
 
         # add perceptive inputs if not blind
