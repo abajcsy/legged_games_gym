@@ -8,9 +8,10 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         num_envs = 3000 # 4096
-        num_observations_robot = 1 # theta
+        # num_observations_robot = 1
+        # num_observations_robot = 1+16 # theta
         # num_observations_robot = 4      # GT observations: (x_rel, theta)
-        # num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
+        num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
         # num_observations_robot = 16     # Raw hist observations: 4-steps x_rel history + visible bools
         num_observations_agent = 4          # AGENT (CUBE)
         num_obs_encoded_robot = None        # how many of the observations are encoded?
@@ -19,8 +20,8 @@ class DecHighLevelGameCfg( BaseConfig ):
         num_privileged_obs_agent = None
         embedding_sz_robot = None #8
         embedding_sz_agent = None #2
-        num_actions_robot = 1       # ang_vel_yaw
-        # num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
+        # num_actions_robot = 1       # ang_vel_yaw
+        num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2       # other agent
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
@@ -30,14 +31,14 @@ class DecHighLevelGameCfg( BaseConfig ):
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
-        fov = 6.28      # = 360, full FOV
+        # fov = 6.28      # = 360, full FOV
         # fov = 1.20428  # = 64 degrees, RealSense;
-        # fov = 1.54    # = 88 degrees, ZED 2 HD1080
+        fov = 1.54    # = 88 degrees, ZED 2 HD1080
 
         fov_curriculum = False
         fov_levels = [6.28, 4.71, 3.14, 1.57, 1.20428] # 360, 270, 180, 90, 64 degrees
 
-        prey_curriculum = False
+        prey_curriculum = True
         prey_angs = [0.52, 1.04, 1.57, 2.4, 3.14] # prey's initial relative angle will be in [-prey_ang, prey_ang]
 
         obstacle_curriculum = False
@@ -87,7 +88,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         class ranges:
             lin_vel_x = [0, 100000]#[-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [0, 0] #[-1.0, 1.0]     # min max [m/s]
-            ang_vel_yaw = [-1, 1]       # min max [rad/s]
+            ang_vel_yaw = [-3.14, 3.14]       # min max [rad/s]
             heading = [-3.14, 3.14]
             agent_lin_vel_x = [-0.5, 0.5] # min max [m/s]
             agent_lin_vel_y = [-0.5, 0.5] # min max [m/s]
@@ -133,8 +134,8 @@ class DecHighLevelGameCfg( BaseConfig ):
     class rewards_robot: # ROBOT!
         only_positive_rewards = False
         class scales:
-            pursuit = -0.0
-            robot_foveation = 1.0
+            pursuit = -1.0
+            robot_foveation = 0.0
             robot_ang_vel = -0.0
             path_progress = 0.0
             termination = 0.0

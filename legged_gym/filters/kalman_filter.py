@@ -48,7 +48,7 @@ class KalmanFilter(object):
             if self.num_states == 4:
                 self.B[2, -1] = 0 # HACK to remap B matrix so 3rd dim (z) is not controlled
             self.B[-1, -1] = self.dt
-            # self.P[-1, -1] *= 0.1
+            self.P[-1, -1] *= 0.1
 
             # adjust the measurement covariance for angular component
             self.R[-1, -1] = 0.1

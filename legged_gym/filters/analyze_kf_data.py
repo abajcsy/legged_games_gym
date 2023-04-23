@@ -20,17 +20,17 @@ if __name__ == '__main__':
 	# bla = 'kf_data_21_04_2023-09-57-37_200.pickle' # xvel
 	# bla = 'kf_data_21_04_2023-09-59-55_200.pickle' # yvel
 	# bla = 'kf_data_21_04_2023-10-02-07_200.pickle'# angvel
-	bla = 'kf_data_22_04_2023-09-17-38_100.pickle'
+	bla = 'kf_data_22_04_2023-17-48-42_200.pickle'
 
 	filename = path + '/data/' + bla 
 	with open(filename, "rb") as f:
 		data_dict = pickle.load(f)
 
 	kf = data_dict["kf"]
-	real_traj = data_dict["real_traj"]
-	est_traj = data_dict["est_traj"]
-	z_traj = data_dict["z_traj"]
-	P_traj = data_dict["P_traj"]
+	real_traj = data_dict["real_traj"]#[:, :10, :]
+	est_traj = data_dict["est_traj"]#[:, :10, :]
+	z_traj = data_dict["z_traj"]#[:, :10, :]
+	P_traj = data_dict["P_traj"]#[:, :10, :, :]
 	pred_traj = None
 
 	# print(real_traj[:, -1])

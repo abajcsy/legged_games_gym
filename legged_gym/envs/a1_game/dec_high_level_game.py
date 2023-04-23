@@ -253,7 +253,8 @@ class DecHighLevelGame():
         # self.obs_buf_robot = torch.zeros(self.num_envs, self.num_obs_robot, device=self.device, dtype=torch.float)
         # self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
         self.obs_buf_robot = torch.zeros(self.num_envs, self.num_obs_robot, device=self.device, dtype=torch.float)
-        # self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
+        if self.num_obs_robot > 3: # TODO: kind of a hack
+            self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
         self.rew_buf_robot = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
 
         # setup the low-level observation buffer
@@ -444,14 +445,14 @@ class DecHighLevelGame():
 
         # NOTE: low-level policy requires 4D control
         # update the low-level simulator command since it deals with the robot
-        ll_env_command_robot = torch.cat((torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
-                                         torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
-                                          command_robot,
-                                          torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)), # heading
-                                          dim=-1)
-        # ll_env_command_robot = torch.cat((command_robot,
+        # ll_env_command_robot = torch.cat((torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
+        #                                  torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
+        #                                   command_robot,
         #                                   torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)), # heading
         #                                   dim=-1)
+        ll_env_command_robot = torch.cat((command_robot,
+                                          torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)), # heading
+                                          dim=-1)
         self.ll_env.commands = ll_env_command_robot
 
         # record the last robot state before simulating physics
@@ -557,13 +558,17 @@ class DecHighLevelGame():
 
     def clip_command_robot(self, command_robot):
         """Clips the robot's commands"""
+        # if self.num_actions_robot == 1:
+        #     command_robot[:, 0] = torch.clip(command_robot[:, 0], min=self.command_ranges["ang_vel_yaw"][0],
+        #                                      max=self.command_ranges["ang_vel_yaw"][1])
         # clip the robot's commands
-        command_robot[:, 0] = torch.clip(command_robot[:, 0], min=self.command_ranges["lin_vel_x"][0], max=self.command_ranges["lin_vel_x"][1])
+        # command_robot[:, 0] = torch.clip(command_robot[:, 0], min=self.command_ranges["lin_vel_x"][0], max=self.command_ranges["lin_vel_x"][1])
+        command_robot[:, 0] = torch.abs(command_robot[:, 0])
         command_robot[:, 1] = torch.clip(command_robot[:, 1], min=self.command_ranges["lin_vel_y"][0], max=self.command_ranges["lin_vel_y"][1])
         command_robot[:, 2] = torch.clip(command_robot[:, 2], min=self.command_ranges["ang_vel_yaw"][0], max=self.command_ranges["ang_vel_yaw"][1])
 
         # set small commands to zero; this was originally used by lowlevel code to enable robot to learn to stand still
-        command_robot[:, :2] *= (torch.norm(command_robot[:, :2], dim=1) > 0.2).unsqueeze(1)
+        # command_robot[:, :2] *= (torch.norm(command_robot[:, :2], dim=1) > 0.2).unsqueeze(1)
 
         return command_robot
 
@@ -772,7 +777,8 @@ class DecHighLevelGame():
 
         # reset robot buffers
         reset_robot_obs = torch.zeros(len(env_ids), self.num_obs_robot, device=self.device, requires_grad=False)
-        # reset_robot_obs[:, self.pos_idxs_robot] = self.MAX_REL_POS # only the initial relative position is reset different
+        if self.num_obs_robot > 3:  # TODO: kind of a hack
+            reset_robot_obs[:, self.pos_idxs_robot] = self.MAX_REL_POS # only the initial relative position is reset different
         self.obs_buf_robot[env_ids, :] = reset_robot_obs
 
         # reset the kalman filter
@@ -911,15 +917,16 @@ class DecHighLevelGame():
         """
 
         sense_obstacles = self.cfg.terrain.fov_measure_heights
-        self.compute_observations_ang_only_robot(command_robot=command_robot, limited_fov=True)          # OBS: (theta_rel)
+        # self.compute_observations_ang_only_robot(command_robot=command_robot,
+        #                                          limited_fov=True)          # OBS: (theta_rel)
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
         # self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
-        # self.compute_observations_KF_robot(command_robot, command_agent,
-        #                                    limited_fov=True,
-        #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
+        self.compute_observations_KF_robot(command_robot, command_agent,
+                                           limited_fov=True,
+                                           sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
@@ -973,10 +980,22 @@ class DecHighLevelGame():
                 rel_state_a_posteriori = self.kf.xhat.clone()
                 covariance_a_posteriori = self.kf.P_tensor.clone()
 
+                P_flattened = torch.flatten(covariance_a_posteriori, start_dim=1)
+
+            # TODO: Hack for logging!
+            if limited_fov is True:
+                hidden_env_ids = (~fov_bool).nonzero(as_tuple=False).flatten()
+                z[hidden_env_ids, :] = 0
+
+            # print("command robot: ", actions_kf_r)
             # print("true rel yaw local: ", rel_yaw_local)
             # print("est. rel yaw local: ", rel_state_a_posteriori[:, -1].unsqueeze(-1))
 
-            self.obs_buf_robot = self.kf.xhat[:, -1].clone().unsqueeze(-1)
+            # self.obs_buf_robot = rel_state_a_posteriori[:, -1].unsqueeze(-1)
+            # self.obs_buf_robot = rel_yaw_local
+
+            self.obs_buf_robot = torch.cat((rel_state_a_posteriori[:, -1].unsqueeze(-1),
+                                            P_flattened), dim=-1)
 
             # ------------------------------------------------------------------- #
             # =========================== Book Keeping ========================== #
