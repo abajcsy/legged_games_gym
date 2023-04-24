@@ -413,15 +413,23 @@ class DecHighLevelGame():
         # record the "optimal" actions for the robot
         self.bc_actions_robot = self._p_ctrl_robot()
 
+        # print("P ctrl: ", self.bc_actions_robot)
+        # print("policy : ", command_robot)
+        #
+        # print("true state: ", self.true_obs_robot[:, :4])
+        # print("estimated state: ", self.kf.xhat)
+
         # TODO: HACK!! This is for debugging.
-        # if self.agent_dyn_type == "integrator":
-        #     command_agent = self._straight_line_command_agent()
-        # elif self.agent_dyn_type == "dubins":
-        #     command_agent = self._weaving_command_agent()
-        command_agent *= 0
+        if self.agent_dyn_type == "integrator":
+            command_agent = self._straight_line_command_agent()
+        elif self.agent_dyn_type == "dubins":
+            command_agent = self._weaving_command_agent()
+
+        # command_agent *= 0
         # command_robot *= 0
         # command_robot[:, 1] = -1
         # command_robot[:,-1] = 0.3
+        # command_robot = self.bc_actions_robot
 
         # print("true rel yaw (local): ", rel_yaw_local)
         # print("estimated rel yaw (local): ", self.kf.xhat[:, -1])
@@ -431,7 +439,7 @@ class DecHighLevelGame():
         # command_robot = self._straight_line_command_augmented_robot(command_robot)
         # command_robot = self._straight_line_command_robot(command_robot)
         # command_robot = self._turn_and_pursue_command_robot(command_robot)
-        # command_robot = self._p_ctrl_robot(command_robot)
+        # command_robot = self._p_ctrl_robot()
         # TODO: HACK!! This is for debugging.
 
         # rel_pos = self.agent_pos[:, :3] - self.robot_states[:, :3]
@@ -495,9 +503,9 @@ class DecHighLevelGame():
         rel_pos_local = self.global_to_robot_frame(rel_pos_global)
         rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0])
 
-        p_cmd_robot[:, 0] = torch.clip(rel_pos_local[:, 0], min=0, max=2)
-        p_cmd_robot[:, 1] = 0
-        p_cmd_robot[:, -1] = torch.clip(rel_yaw_local, min=-3.14, max=3.14)
+        p_cmd_robot[:, 0] = torch.clip(rel_pos_local[:, 0], min=0, max=2) #torch.clip(rel_pos_local[:, 0], min=-1, max=1)
+        p_cmd_robot[:, 1] = 0. #torch.clip(rel_pos_local[:, 1], min=-1, max=1)
+        p_cmd_robot[:, -1] = torch.clip(rel_yaw_local, min=-3.14, max=3.14) #torch.clip(rel_yaw_local, min=-1, max=1)
 
         return p_cmd_robot
 
@@ -561,7 +569,7 @@ class DecHighLevelGame():
         switch_idx = 100
         if self.weaving_tstep % switch_idx == 0:
             self.weaving_ctrl_idx += 1
-            self.weaving_ctrl_idx %= 2
+            self.weaving_ctrl_idx %= 3
             self.weaving_tstep = 0
 
         if self.weaving_ctrl_idx == 0:
@@ -570,6 +578,9 @@ class DecHighLevelGame():
         elif self.weaving_ctrl_idx == 1:
             command_agent[:, 0] = 2*self.command_ranges["agent_lin_vel_x"][1]
             command_agent[:, 1] = self.command_ranges["agent_ang_vel_yaw"][1]
+        elif self.weaving_ctrl_idx == 2:
+            command_agent[:, 0] = 2 * self.command_ranges["agent_lin_vel_x"][1]
+            command_agent[:, 1] = 0
 
         return command_agent
 
@@ -1224,6 +1235,7 @@ class DecHighLevelGame():
         self.obs_buf_robot = torch.cat((scaled_rel_state_a_posteriori,
                                         P_flattened
                                         ), dim=-1)
+
 
         self.true_obs_robot = torch.cat((rel_state,
                                         torch.zeros(self.num_envs, P_flattened.shape[1], device=self.device)

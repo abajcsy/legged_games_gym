@@ -20,7 +20,13 @@ if __name__ == '__main__':
 	# bla = 'kf_data_21_04_2023-09-57-37_200.pickle' # xvel
 	# bla = 'kf_data_21_04_2023-09-59-55_200.pickle' # yvel
 	# bla = 'kf_data_21_04_2023-10-02-07_200.pickle'# angvel
-	bla = 'kf_data_22_04_2023-17-48-42_200.pickle'
+
+
+	bla = 'kf_data_24_04_2023-12-09-35_50.pickle'
+	# bla = 'kf_data_24_04_2023-12-09-42_200.pickle'
+
+	# bla = 'kf_data_24_04_2023-12-11-55_200.pickle'
+	# bla = 'kf_data_24_04_2023-12-11-50_100.pickle'
 
 	filename = path + '/data/' + bla 
 	with open(filename, "rb") as f:

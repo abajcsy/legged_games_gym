@@ -45,7 +45,7 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 5
+    max_num_envs = 3
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
 
     # # prepare environment
