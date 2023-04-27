@@ -39,7 +39,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         fov_curriculum = False
         fov_levels = [6.28, 4.71, 3.14, 1.57, 1.20428] # 360, 270, 180, 90, 64 degrees
 
-        prey_curriculum = True
+        prey_curriculum = False
         prey_angs = [0.52, 1.04, 1.57, 2.4, 3.14] # prey's initial relative angle will be in [-prey_ang, prey_ang]
 
         obstacle_curriculum = False
@@ -85,15 +85,15 @@ class DecHighLevelGameCfg( BaseConfig ):
     class commands: # note: commands and actions are the same for the high-level policy
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
-        command_clipping = False        # if true: clip robot + agent commands to the ranges below
+        command_clipping = True        # if true: clip robot + agent commands to the ranges below
         class ranges:
-            lin_vel_x = [0, 1] #[-1.0, 1.0]     # min max [m/s]
+            lin_vel_x = [0, 3.5] #[-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [0, 0] #[-1.0, 1.0]     # min max [m/s]
-            ang_vel_yaw = [-1,1] #[-3.14, 3.14]       # min max [rad/s]
+            ang_vel_yaw = [-2, 2] #[-3.14, 3.14]       # min max [rad/s]
             heading = [-3.14, 3.14]
-            agent_lin_vel_x = [-1, 1] # min max [m/s]
+            agent_lin_vel_x = [-1.8, 1.8] # min max [m/s]
             agent_lin_vel_y = [-0.5, 0.5] # min max [m/s]
-            agent_ang_vel_yaw = [-3.0, 3.0] # min max [rad/s]
+            agent_ang_vel_yaw = [-1.0, 1.0] # min max [rad/s]
 
     class init_state:
         agent_pos = [0.0, 0.0, 0.3] # x, y, z (agent pos)
@@ -136,6 +136,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         only_positive_rewards = False
         class scales:
             pursuit = -1.0
+            command_norm = -0.5
             robot_foveation = 0.0
             robot_ang_vel = -0.0
             path_progress = 0.0

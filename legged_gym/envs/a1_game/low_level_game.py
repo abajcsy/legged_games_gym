@@ -790,10 +790,10 @@ class LowLevelGame(BaseTask):
         agent_start_pose.p = gymapi.Vec3(*agent_init[:3])
 
         # the agent is initialized at a random (xyz) offset from the robot
-        min_ang = -np.pi
-        max_ang = np.pi
+        min_ang = -np.pi # -0.25
+        max_ang = np.pi # 0.25
         min_rad = 2.0
-        max_rad = 6.0
+        max_rad = 6.0 #3.0
         self.rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
         rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_rad, max_rad)
         self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(self.rand_angle),

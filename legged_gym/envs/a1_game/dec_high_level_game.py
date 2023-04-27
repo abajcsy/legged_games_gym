@@ -361,6 +361,12 @@ class DecHighLevelGame():
         self.weaving_tstep = 0
         self.weaving_ctrl_idx = 0
 
+        self.last_turn_tstep = 1
+        self.last_straight_tstep = 1
+        self.turn_or_straight_idx = 0 # 0 == turn, 1 == straight
+        self.turn_direction_idx = 0 # 0 == turn left, 1 == turn right
+        self.first_turn = True
+
         # Reward debugging saving info
         self.save_rew_data = False
         self.rew_debug_tstep = 0
@@ -424,9 +430,13 @@ class DecHighLevelGame():
             command_agent = self._straight_line_command_agent()
         elif self.agent_dyn_type == "dubins":
             command_agent = self._weaving_command_agent()
+            # command_agent = self._turning_command_agent()
 
-        # command_agent *= 0
-        # command_robot *= 0
+        #command_agent *= 0
+
+        #print("command_robot: ", command_robot)
+
+        #command_robot *= 0
         # command_robot[:, 1] = -1
         # command_robot[:,-1] = 0.3
         # command_robot = self.bc_actions_robot
@@ -492,8 +502,6 @@ class DecHighLevelGame():
         # # update robot's visual sensing curriculum; do this for all envs
         # if self.cfg.robot_sensing.fov_curriculum:
         #     self._update_robot_sensing_curriculum(torch.arange(self.num_envs, device=self.device))
-
-        self.weaving_tstep += 1
 
         return self.obs_buf_agent, self.obs_buf_robot, self.privileged_obs_buf_agent, self.privileged_obs_buf_robot, self.rew_buf_agent, self.rew_buf_robot, self.reset_buf, self.extras
 
@@ -563,7 +571,7 @@ class DecHighLevelGame():
 
         return command_agent
 
-    def _weaving_command_agent(self):
+    def _turning_command_agent(self):
         # TODO: This assumes agent is prey
         command_agent = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
         switch_idx = 100
@@ -581,6 +589,62 @@ class DecHighLevelGame():
         elif self.weaving_ctrl_idx == 2:
             command_agent[:, 0] = 2 * self.command_ranges["agent_lin_vel_x"][1]
             command_agent[:, 1] = 0
+
+        self.weaving_tstep += 1
+
+        return command_agent
+
+    def _weaving_command_agent(self):
+        # TODO: This assumes agent is prey
+        command_agent = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
+        # for ang_vel [-3,3]
+        # straight_switch_freq = 150
+        # turn_switch_freq = 50
+        # init_turn_switch_freq = 25
+
+        # for ang_vel [-1,1]
+        straight_switch_freq = 100
+        turn_switch_freq = 150
+        init_turn_switch_freq = 75
+
+        #import pdb; pdb.set_trace()
+        if self.turn_or_straight_idx == 0: # we are in "TURNING" mode
+            command_agent[:, 0] = self.command_ranges["agent_lin_vel_x"][1]
+            command_agent[:, 1] = self.command_ranges["agent_ang_vel_yaw"][self.turn_direction_idx] # turn
+
+            if self.first_turn and self.last_turn_tstep % init_turn_switch_freq == 0:
+                self.first_turn = False
+                # if it is time to switch to the other mode
+                self.last_turn_tstep = 1
+                self.turn_or_straight_idx += 1
+                self.turn_or_straight_idx %= 2
+
+                # next time we are in turning mode, we turn the other way
+                self.turn_direction_idx += 1
+                self.turn_direction_idx %= 2
+            if self.last_turn_tstep % turn_switch_freq == 0:
+                # if it is time to switch to the other mode
+                self.last_turn_tstep = 1
+                self.turn_or_straight_idx += 1
+                self.turn_or_straight_idx %= 2
+
+                # next time we are in turning mode, we turn the other way
+                self.turn_direction_idx += 1
+                self.turn_direction_idx %= 2
+            else:
+                self.last_turn_tstep += 1
+
+        else: # we are in "STRAIGHT" mode
+            command_agent[:, 0] = self.command_ranges["agent_lin_vel_x"][1]
+            command_agent[:, 1] = 0
+
+            if self.last_straight_tstep % straight_switch_freq == 0:
+                # if it is time to switch to the other mode
+                self.last_straight_tstep = 1
+                self.turn_or_straight_idx += 1
+                self.turn_or_straight_idx %= 2
+            else:
+                self.last_straight_tstep += 1
 
         return command_agent
 
@@ -844,6 +908,13 @@ class DecHighLevelGame():
         self.capture_buf[env_ids] = 0
         self.detected_buf_agent[env_ids, :] = 0
         self.detected_buf_robot[env_ids, :] = 0
+
+        # reset simulated agent behavior variables
+        self.last_turn_tstep = 1
+        self.last_straight_tstep = 1
+        self.turn_or_straight_idx = 0   # 0 == turn, 1 == straight
+        self.turn_direction_idx = 0     # 0 == turn left, 1 == turn right
+        self.first_turn = True
 
         self.last_robot_pos[env_ids, :] = self.ll_env.env_origins[env_ids, :3] # reset last robot position to the reset pos
 
@@ -1235,7 +1306,6 @@ class DecHighLevelGame():
         self.obs_buf_robot = torch.cat((scaled_rel_state_a_posteriori,
                                         P_flattened
                                         ), dim=-1)
-
 
         self.true_obs_robot = torch.cat((rel_state,
                                         torch.zeros(self.num_envs, P_flattened.shape[1], device=self.device)
@@ -1959,6 +2029,11 @@ class DecHighLevelGame():
         rew = torch.norm(self.ll_env.commands[:, 2], p=2, dim=-1)
         return rew
 
+    def _reward_command_norm(self):
+        """Reward for the robot's command"""
+        rew = torch.square(torch.norm(self.ll_env.commands, p=2, dim=-1))
+        return rew
+
     def _reward_path_progress(self):
         """Reward for progress along the path that connects the initial robot state to the agent state.
         r(t) = proj(s(t)) - proj(s(t-1))
@@ -1969,38 +2044,6 @@ class DecHighLevelGame():
 
         curr_progress_to_agent = self.proj_state_to_path(curr_robot_pos, robot_start_pos, robot_goal_pos)
         last_progress_to_agent = self.proj_state_to_path(self.last_robot_pos, robot_start_pos, robot_goal_pos)
-
-        # if self.save_rew_data:
-        #     if self.r_start is None:
-        #         self.r_start = robot_start_pos.unsqueeze(0)
-        #         self.r_goal = robot_goal_pos.unsqueeze(0)
-        #         self.r_curr = curr_robot_pos.unsqueeze(0)
-        #         self.r_curr_proj = curr_progress_to_agent.unsqueeze(0)
-        #         self.r_last = self.last_robot_pos.unsqueeze(0)
-        #         self.r_last_proj = last_progress_to_agent.unsqueeze(0)
-        #     else:
-        #         self.r_start = torch.cat((self.r_start, robot_start_pos.unsqueeze(0)), dim=0)
-        #         self.r_goal = torch.cat((self.r_goal, robot_goal_pos.unsqueeze(0)), dim=0)
-        #         self.r_curr = torch.cat((self.r_curr, curr_robot_pos.unsqueeze(0)), dim=0)
-        #         self.r_curr_proj = torch.cat((self.r_curr_proj, curr_progress_to_agent.unsqueeze(0)), dim=0)
-        #         self.r_last = torch.cat((self.r_last, self.last_robot_pos.unsqueeze(0)), dim=0)
-        #         self.r_last_proj = torch.cat((self.r_last_proj, last_progress_to_agent.unsqueeze(0)), dim=0)
-
-        #     if self.rew_debug_tstep % self.rew_debug_interval == 0:
-        #         print("Saving reward debugging information at ", self.rew_debug_tstep, "...")
-        #         now = datetime.now()
-        #         dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
-        #         filename = "rew_debug_" + dt_string + "_" + str(self.rew_debug_tstep) + ".pickle"
-        #         data_dict = {"r_start": self.r_start.cpu().numpy(),
-        #                      "r_goal": self.r_goal.cpu().numpy(),
-        #                      "r_curr": self.r_curr.cpu().numpy(),
-        #                      "r_curr_proj": self.r_curr_proj.cpu().numpy(),
-        #                      "r_last": self.r_last.cpu().numpy(),
-        #                      "r_last_proj": self.r_last_proj.cpu().numpy()}
-        #         with open(filename, 'wb') as handle:
-        #             pickle.dump(data_dict, handle)
-
-        #     self.rew_debug_tstep += 1
 
         return curr_progress_to_agent - last_progress_to_agent
 
