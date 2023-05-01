@@ -15,15 +15,15 @@ class DecHighLevelGameCfg( BaseConfig ):
 
         # num_observations_robot = 1
         # num_observations_robot = 1+16 # theta
-        # num_observations_robot = 4      # GT observations: (x_rel, theta)
+        num_observations_robot = 4      # GT observations: (x_rel, theta)
         #num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
-        num_observations_robot = 4+num_pred_steps*num_actions_agent     # GT sanity check: (x_rel, agent_action0 ... agent_actionT)
+        # num_observations_robot = 4+num_pred_steps*num_actions_agent     # GT sanity check: (x_rel, agent_action0 ... agent_actionT)
         num_observations_agent = 4          # AGENT (CUBE)
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
 
-        num_obs_encoded_robot = num_pred_steps*num_actions_agent        # how many of the observations are encoded?
-        num_obs_encoded_agent = 4
+        num_obs_encoded_robot = None #num_pred_steps*num_actions_agent        # how many of the observations are encoded?
+        num_obs_encoded_agent = None #4
         embedding_sz_robot = 8
         embedding_sz_agent = 2
 
@@ -227,8 +227,8 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        #policy_class_name = 'ActorCritic' 
-        policy_class_name = 'ActorCriticGames'
+        policy_class_name = 'ActorCritic' 
+        #policy_class_name = 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
         max_iterations = 1601           # number of policy updates per agent

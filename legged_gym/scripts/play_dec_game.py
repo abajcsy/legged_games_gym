@@ -74,7 +74,8 @@ def play_dec_game(args):
     #train_cfg.runner.load_run = 'Apr26_18-08-49_' # policy with -||u||^2
 
     #train_cfg.runner.load_run = 'Apr28_09-17-01_' # policy with (xrel, upred^t:t:10)
-    train_cfg.runner.load_run = 'Apr28_09-57-41_'
+
+    train_cfg.runner.load_run = 'Apr30_18-18-17_' # policy with slower HL policy frequency
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
