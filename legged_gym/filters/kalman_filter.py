@@ -11,7 +11,8 @@ from datetime import datetime
 import os
 
 class KalmanFilter(object):
-    def __init__(self, dt,
+    def __init__(self,
+                 dt,
                  num_states,
                  num_actions,
                  num_envs,
@@ -116,12 +117,19 @@ class KalmanFilter(object):
 
         return xnext
 
-    def predict(self, command_robot):
+    def predict(self,
+                command_robot,
+                inplace=True,
+                xhat=None,
+                P_tensor=None):
         """
-        Precition, i.e., time update.
+        Prediction, i.e., time update.
 
         Args: 
             command_robot (torch.Tensor): current action of shape [num_envs, num_actions]
+            inplace (bool): if True, then modifies internal variable xhat, otherwise returns new value
+            xhat (torch.Tensor): (optional) current estimate [num_envs, num_states]
+            P_tensor (torch.Tensor): (optional) current covariance [num_envs, num_states, num_states]
         Returns:
             xhat (torch.Tensor): predicted (a priori) state estimate of shape [num_envs, num_states]
         """
@@ -129,16 +137,28 @@ class KalmanFilter(object):
         if command_robot.dtype != self.dtype:
             command_robot = command_robot.to(self.dtype)
 
-        # Predict the next state by applying dynamics
-        #   xhat' = Axhat + Bu
-        self.xhat = self.dynamics(self.xhat, command_robot)
+        if inplace:
+            # Predict the next state by applying dynamics
+            #   xhat' = Axhat + Bu
+            self.xhat = self.dynamics(self.xhat, command_robot)
 
-        # Predict the error covariance 
-        #   Phat = A * P * A' + Q
-        AP = torch.bmm(self.A_tensor, self.P_tensor)
-        A_top = torch.transpose(self.A_tensor, 1, 2)
-        self.P_tensor = torch.bmm(AP, A_top) + self.Q_tensor
-        return self.xhat
+            # Predict the error covariance
+            #   Phat = A * P * A' + Q
+            AP = torch.bmm(self.A_tensor, self.P_tensor)
+            A_top = torch.transpose(self.A_tensor, 1, 2)
+            self.P_tensor = torch.bmm(AP, A_top) + self.Q_tensor
+            return self.xhat, self.P_tensor
+        else:
+            # Predict the next state by applying dynamics
+            #   xhat' = Axhat + Bu
+            xhat_new = self.dynamics(xhat, command_robot)
+
+            # Predict the error covariance
+            #   Phat = A * P * A' + Q
+            AP = torch.bmm(self.A_tensor, P_tensor)
+            A_top = torch.transpose(self.A_tensor, 1, 2)
+            P_tensor_new = torch.bmm(AP, A_top) + self.Q_tensor
+            return xhat_new, P_tensor_new
 
     def correct(self, z, env_ids):
         """

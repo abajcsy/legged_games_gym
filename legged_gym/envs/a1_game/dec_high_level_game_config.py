@@ -7,22 +7,26 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   48 observations for nominal A1 setup
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
+        debug_viz = False
         num_envs = 3000 # 4096
+        num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
+        num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
+        num_pred_steps = 50 #25  # number of steps to predict into the future
+
         # num_observations_robot = 1
         # num_observations_robot = 1+16 # theta
         # num_observations_robot = 4      # GT observations: (x_rel, theta)
-        num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
-        # num_observations_robot = 16     # Raw hist observations: 4-steps x_rel history + visible bools
+        #num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
+        num_observations_robot = 4+num_pred_steps*num_actions_agent     # GT sanity check: (x_rel, agent_action0 ... agent_actionT)
         num_observations_agent = 4          # AGENT (CUBE)
-        num_obs_encoded_robot = None        # how many of the observations are encoded?
-        num_obs_encoded_agent = None #4
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
-        embedding_sz_robot = None #8
-        embedding_sz_agent = None #2
-        # num_actions_robot = 1       # ang_vel_yaw
-        num_actions_robot = 3         # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
-        num_actions_agent = 2       # other agent
+
+        num_obs_encoded_robot = num_pred_steps*num_actions_agent        # how many of the observations are encoded?
+        num_obs_encoded_agent = 4
+        embedding_sz_robot = 8
+        embedding_sz_agent = 2
+
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
         send_BC_actions = True      # send optimal robot actions for the BC loss in the algorithm
@@ -85,7 +89,7 @@ class DecHighLevelGameCfg( BaseConfig ):
     class commands: # note: commands and actions are the same for the high-level policy
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
-        command_clipping = True        # if true: clip robot + agent commands to the ranges below
+        command_clipping = False        # if true: clip robot + agent commands to the ranges below
         class ranges:
             lin_vel_x = [0, 3.5] #[-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [0, 0] #[-1.0, 1.0]     # min max [m/s]
@@ -136,7 +140,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         only_positive_rewards = False
         class scales:
             pursuit = -1.0
-            command_norm = -0.5
+            command_norm = -0.0
             robot_foveation = 0.0
             robot_ang_vel = -0.0
             path_progress = 0.0
@@ -197,8 +201,10 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+        
         # only for 'ActorCriticGames'
-        # encoder_hidden_dims = [512, 256, 128]
+        encoder_hidden_dims = [512, 256, 128]
+
         # only for 'ActorCriticRecurrent':
         # rnn_type = 'lstm'
         # rnn_hidden_size = 512
@@ -210,7 +216,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         use_clipped_value_loss = True
         clip_param = 0.2
         entropy_coef = 0. #0.01
-        bc_coef = 0.01
+        bc_coef = 0. #0.01
         num_learning_epochs = 5
         num_mini_batches = 4  # mini batch size = num_envs*nsteps / nminibatches
         learning_rate = 1.e-3  # 5.e-4
@@ -221,7 +227,8 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        policy_class_name = 'ActorCritic' # 'ActorCriticGames'
+        #policy_class_name = 'ActorCritic' 
+        policy_class_name = 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
         max_iterations = 1601           # number of policy updates per agent

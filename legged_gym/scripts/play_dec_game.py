@@ -57,7 +57,7 @@ def play_dec_game(args):
 
     # load policies of agent and robot
     evol_checkpoint = 0
-    # learn_checkpoint = 400
+    # learn_checkpoint = 1000
     learn_checkpoint = 1600
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = True
@@ -70,8 +70,12 @@ def play_dec_game(args):
     # train_cfg.runner.load_run = 'Apr22_15-35-56_' # local rel pos, ZED FOV
     # train_cfg.runner.load_run = 'Apr21_17-39-32_' # local rel pos, FULL FOV
 
-    train_cfg.runner.load_run = 'Apr23_09-40-25_' # WORKING POLICY with BC
+    #train_cfg.runner.load_run = 'Apr23_09-40-25_' # WORKING POLICY with BC
     #train_cfg.runner.load_run = 'Apr26_18-08-49_' # policy with -||u||^2
+
+    #train_cfg.runner.load_run = 'Apr28_09-17-01_' # policy with (xrel, upred^t:t:10)
+    train_cfg.runner.load_run = 'Apr28_09-57-41_'
+
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT

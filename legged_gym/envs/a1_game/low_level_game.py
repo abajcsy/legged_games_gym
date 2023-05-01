@@ -72,7 +72,7 @@ class LowLevelGame(BaseTask):
         self.cfg = cfg
         self.sim_params = sim_params
         self.height_samples = None
-        self.debug_viz = True
+        self.debug_viz = False
         self.init_done = False
         self.aggregate_mode = 1
 
@@ -465,6 +465,10 @@ class LowLevelGame(BaseTask):
         # Reset agent info -- rotation
         init_agent_quat_vec = quat_from_angle_axis(self.init_agent_heading, self.z_unit_tensor)
         self.root_states[self.agent_indices[env_ids], 3:7] = init_agent_quat_vec[env_ids, :]
+        # self.init_agent_heading[:] = -np.pi/2
+        # target_agent_ang = torch.tensor(np.pi/2, device=self.device).repeat(self.num_envs)
+        # agent_quat_vec = quat_from_angle_axis(target_agent_ang, self.z_unit_tensor)
+        # self.root_states[self.agent_indices[env_ids], 3:7] = agent_quat_vec[env_ids, :]
 
         # Reset agent info -- base linear and velocities to zero
         self.root_states[self.agent_indices[env_ids], 7:13] = torch.zeros(len(env_ids), 6, dtype=torch.float, device=self.device, requires_grad=False)  # [7:10]: lin vel, [10:13]: ang vel
@@ -636,13 +640,6 @@ class LowLevelGame(BaseTask):
 
         print("[LowLevelGame] self.init_agent_heading: ", self.init_agent_heading)
 
-    def _reset_init_agent_states():
-        """Updates local variables of initial agent states"""
-        self.init_agent_pos = self.root_states[self.agent_indices, :3]
-        self.init_agent_base_quat = self.root_states[self.agent_indices, 3:7].clone()
-        _, _, self.init_agent_heading = get_euler_xyz(self.init_agent_base_quat)
-        self.init_agent_heading = wrap_to_pi(self.init_agent_heading)
-
     def _prepare_reward_function(self):
         """ Prepares a list of reward functions, whcih will be called to compute the total reward.
             Looks for self._reward_<REWARD_NAME>, where <REWARD_NAME> are names of all non zero reward scales in the cfg.
@@ -790,10 +787,10 @@ class LowLevelGame(BaseTask):
         agent_start_pose.p = gymapi.Vec3(*agent_init[:3])
 
         # the agent is initialized at a random (xyz) offset from the robot
-        min_ang = -np.pi # -0.25
-        max_ang = np.pi # 0.25
+        min_ang = 0. #-np.pi
+        max_ang = 0.#np.pi
         min_rad = 2.0
-        max_rad = 6.0 #3.0
+        max_rad = 6.0
         self.rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
         rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_rad, max_rad)
         self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(self.rand_angle),
@@ -968,7 +965,7 @@ class LowLevelGame(BaseTask):
                 # just draw the robot's FOV
                 self._draw_fov_rays(env_id=i)
                 self._draw_world_frame(env_id=i)
-                self._draw_robot_frame(env_id=i)
+                #self._draw_robot_frame(env_id=i)
                 self._draw_rel_pos(env_id=i)
             return
 
@@ -1004,7 +1001,16 @@ class LowLevelGame(BaseTask):
             # just draw the robot's FOV
             self._draw_fov_rays(env_id=i)
             self._draw_world_frame(env_id=i)
-            self._draw_robot_frame(env_id=i)
+            #self._draw_robot_frame(env_id=i)
+
+    def _draw_predictions(self, pred_agent_state_global):
+        """Draws the predicted agent states w.r.t the agent's coordinate frame."""
+        sphere_geom_yellow = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
+        for tstep in range(pred_agent_state_global.shape[0]):
+            for i in range(self.num_envs):
+                agent_state = pred_agent_state_global[tstep, i, :]
+                sphere_pose = gymapi.Transform(gymapi.Vec3(agent_state[0], agent_state[1], 0.05), r=None)
+                gymutil.draw_lines(sphere_geom_yellow, self.gym, self.viewer, self.envs[i], sphere_pose)
 
     def _draw_rel_pos(self, env_id):
         """Draws the relative position in the robot's coordinate frame."""
