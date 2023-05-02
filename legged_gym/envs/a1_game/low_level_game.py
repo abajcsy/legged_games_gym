@@ -742,8 +742,8 @@ class LowLevelGame(BaseTask):
         robot_asset = self.gym.load_asset(self.sim, asset_root, asset_file, asset_options)
 
         # load agent asset
-        agent_asset_root = "/home/abajcsy/Downloads/isaacgym/assets"
-        agent_asset_file = "urdf/objects/cube_goal_multicolor_big.urdf"
+        agent_asset_root = LEGGED_GYM_ROOT_DIR + "/assets/urdf/"
+        agent_asset_file = "cube_goal_multicolor_big.urdf"
         agent_asset = self.gym.load_asset(self.sim, agent_asset_root, agent_asset_file)
 
         # Get the number of robot dofs and rigid bodies
