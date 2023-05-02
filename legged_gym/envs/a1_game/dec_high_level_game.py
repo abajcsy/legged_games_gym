@@ -23,7 +23,7 @@ from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 from legged_gym.utils import task_registry
 from legged_gym.filters.kalman_filter import KalmanFilter
 from legged_gym.filters.ma_kalman_filter import MultiAgentKalmanFilter
-from legged_gym.filters.kf_torchfilter import UKFTorchFilter
+#from legged_gym.filters.kf_torchfilter import UKFTorchFilter
 import sys
 
 import pickle
@@ -160,6 +160,7 @@ class DecHighLevelGame():
 
         self.num_envs = self.cfg.env.num_envs
         self.debug_viz = self.cfg.env.debug_viz
+        self.hl_dt = self.cfg.env.robot_hl_dt # high level Hz
 
         # setup the capture distance between two agents
         self.capture_dist = self.cfg.env.capture_dist
@@ -330,22 +331,22 @@ class DecHighLevelGame():
                                     state_type="pos_ang",
                                     device=self.device,
                                     dtype=torch.float)
-        elif self.filter_type == "ukf":
-            self.kf = UKFTorchFilter(state_dim=self.num_states_kf,
-                                    control_dim=self.num_actions_kf_r,
-                                    observation_dim=self.num_states_kf,
-                                    num_envs=self.num_envs,
-                                    dt=self.filter_dt,
-                                    device=self.device,
-                                    ang_dims=-1,
-                                    dyn_sys_type=self.dyn_sys_type)
-            self.kf_og = KalmanFilter(self.filter_dt,
-                                    self.num_states_kf,
-                                    self.num_actions_kf_r,
-                                    self.num_envs,
-                                    state_type="pos_ang",
-                                    device=self.device,
-                                    dtype=torch.float)
+        # elif self.filter_type == "ukf":
+        #     self.kf = UKFTorchFilter(state_dim=self.num_states_kf,
+        #                             control_dim=self.num_actions_kf_r,
+        #                             observation_dim=self.num_states_kf,
+        #                             num_envs=self.num_envs,
+        #                             dt=self.filter_dt,
+        #                             device=self.device,
+        #                             ang_dims=-1,
+        #                             dyn_sys_type=self.dyn_sys_type)
+        #     self.kf_og = KalmanFilter(self.filter_dt,
+        #                             self.num_states_kf,
+        #                             self.num_actions_kf_r,
+        #                             self.num_envs,
+        #                             state_type="pos_ang",
+        #                             device=self.device,
+        #                             dtype=torch.float)
         elif self.filter_type == "makf":
             self.kf = MultiAgentKalmanFilter(self.filter_dt,
                                     self.num_states_kf,
@@ -441,7 +442,7 @@ class DecHighLevelGame():
         self.last_robot_pos[:] = self.robot_states[:, :3]
 
         # run the low-level policy at a potentially different frequency 
-        hl_freq = 0.2 # 5 Hz
+        hl_freq = self.hl_dt
         ll_freq = self.ll_env.dt
         num_ll_steps = int(hl_freq / ll_freq)
 
@@ -590,8 +591,8 @@ class DecHighLevelGame():
         command_agent = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
 
         # for ang_vel [-1,1]
-        straight_switch_freq = 50 #100
-        turn_switch_freq = 75 #150
+        straight_switch_freq = 100
+        turn_switch_freq = 150
         first_turn_switch_freq = 75
 
         # find environments where agent is visible
@@ -1003,11 +1004,11 @@ class DecHighLevelGame():
         if self.filter_type == "kf":
             xhat0 = self.kf.sim_measurement(rel_state)
             self.kf.reset_xhat(env_ids=env_ids, xhat_val=xhat0[env_ids, :])
-        elif self.filter_type == "ukf":
-            xhat0 = self.kf.sim_observations(states=rel_state)
-            self.kf.reset_mean_cov(env_ids=env_ids, mean=xhat0[env_ids, :])
-            xhat0_og = self.kf_og.sim_measurement(rel_state)
-            self.kf_og.reset_xhat(env_ids=env_ids, xhat_val=xhat0[env_ids, :])
+        # elif self.filter_type == "ukf":
+        #     xhat0 = self.kf.sim_observations(states=rel_state)
+        #     self.kf.reset_mean_cov(env_ids=env_ids, mean=xhat0[env_ids, :])
+        #     xhat0_og = self.kf_og.sim_measurement(rel_state)
+        #     self.kf_og.reset_xhat(env_ids=env_ids, xhat_val=xhat0[env_ids, :])
             # import pdb; pdb.set_trace()
 
         # reset the high-level buffers
@@ -1218,12 +1219,12 @@ class DecHighLevelGame():
         if self.filter_type == "kf":
             self.kf.predict(actions_kf_r)
             rel_state_a_priori = self.kf.xhat
-        elif self.filter_type == "ukf":
-            # import pdb; pdb.set_trace()
-            self.kf_og.predict(actions_kf_r)
-            rel_state_a_priori_og = self.kf_og.xhat
-            self.kf.predict(actions_kf_r)
-            rel_state_a_priori = self.kf.filter._belief_mean
+        # elif self.filter_type == "ukf":
+        #     # import pdb; pdb.set_trace()
+        #     self.kf_og.predict(actions_kf_r)
+        #     rel_state_a_priori_og = self.kf_og.xhat
+        #     self.kf.predict(actions_kf_r)
+        #     rel_state_a_priori = self.kf.filter._belief_mean
 
         if self.num_states_kf == 4:
             rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
@@ -1258,15 +1259,15 @@ class DecHighLevelGame():
             self.kf.correct(z, env_ids=visible_env_ids)
             rel_state_a_posteriori = self.kf.xhat.clone()
             covariance_a_posteriori = self.kf.P_tensor.clone()
-        elif self.filter_type == "ukf":
-            z = self.kf.sim_observations(states=rel_state)
-            self.kf.update(z[visible_env_ids, :], env_ids=visible_env_ids)
-            rel_state_a_posteriori = self.kf.filter._belief_mean.clone()
-            covariance_a_posteriori = self.kf.filter._belief_covariance.clone()
-            z_og = self.kf_og.sim_measurement(rel_state)
-            self.kf_og.correct(z, env_ids=visible_env_ids)
-            rel_state_a_posteriori_og = self.kf_og.xhat.clone()
-            covariance_a_posteriori_og = self.kf_og.P_tensor.clone()
+        # elif self.filter_type == "ukf":
+        #     z = self.kf.sim_observations(states=rel_state)
+        #     self.kf.update(z[visible_env_ids, :], env_ids=visible_env_ids)
+        #     rel_state_a_posteriori = self.kf.filter._belief_mean.clone()
+        #     covariance_a_posteriori = self.kf.filter._belief_covariance.clone()
+        #     z_og = self.kf_og.sim_measurement(rel_state)
+        #     self.kf_og.correct(z, env_ids=visible_env_ids)
+        #     rel_state_a_posteriori_og = self.kf_og.xhat.clone()
+        #     covariance_a_posteriori_og = self.kf_og.P_tensor.clone()
             # pdb.set_trace()
         # --------------------------- #
 

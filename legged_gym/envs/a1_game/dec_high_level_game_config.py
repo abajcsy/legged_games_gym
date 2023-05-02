@@ -8,6 +8,9 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         debug_viz = False
+        robot_hl_dt = 0.2   # 5 Hz
+        #robot_hl_dt = 1     # 1 Hz
+
         num_envs = 3000 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
