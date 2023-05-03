@@ -9,24 +9,24 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 3 for relative xyz-state to point-agent
         debug_viz = False
         robot_hl_dt = 0.2   # 5 Hz
-        #robot_hl_dt = 1     # 1 Hz
 
         num_envs = 3000 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
-        num_pred_steps = 50 #25  # number of steps to predict into the future
+        num_pred_steps = 0              # number of steps to *predict* into the future
+        num_hist_steps = 20             # 4 seconds of history
 
         # num_observations_robot = 1
         # num_observations_robot = 1+16 # theta
-        num_observations_robot = 4      # GT observations: (x_rel, theta)
+        #num_observations_robot = 4      # GT observations: (x_rel, theta)
         #num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
-        #num_observations_robot = 4+num_pred_steps*num_actions_agent     # GT sanity check: (x_rel, agent_action0 ... agent_actionT)
+        num_observations_robot = 4*(num_hist_steps+1) + num_actions_robot*num_hist_steps # pi(x^t-N:t, uR^t-N:t-1)
         num_observations_agent = 4          # AGENT (CUBE)
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
 
-        num_obs_encoded_robot = None #num_pred_steps*num_actions_agent        # how many of the observations are encoded?
-        num_obs_encoded_agent = None #4
+        num_obs_encoded_robot = num_observations_robot - 4 # how many of the observations are encoded?
+        num_obs_encoded_agent = 4
         embedding_sz_robot = 8
         embedding_sz_agent = 2
 
@@ -142,12 +142,13 @@ class DecHighLevelGameCfg( BaseConfig ):
     class rewards_robot: # ROBOT!
         only_positive_rewards = False
         class scales:
-            pursuit = -1.0
+            pursuit = -0.0
+            exp_pursuit = -1.0
             command_norm = -0.0
             robot_foveation = 0.0
             robot_ang_vel = -0.0
             path_progress = 0.0
-            termination = 0.0
+            termination = 100.0
 
     class rewards_agent: # CUBE!
         only_positive_rewards = False
@@ -208,6 +209,9 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         # only for 'ActorCriticGames'
         encoder_hidden_dims = [512, 256, 128]
 
+        # only for 'ActorCriticWithProxy'
+        decoder_hidden_dims = [128, 256, 512]
+
         # only for 'ActorCriticRecurrent':
         # rnn_type = 'lstm'
         # rnn_hidden_size = 512
@@ -230,15 +234,15 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        policy_class_name = 'ActorCritic'
-        #policy_class_name = 'ActorCriticGames'
+        #policy_class_name = 'ActorCritic'
+        policy_class_name = 'ActorCriticGames'
         algorithm_class_name = 'PPO'
-        num_steps_per_env = 24          # per iteration
+        num_steps_per_env = 12 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
-        save_learn_interval = 50  # check for potential saves every this many iterations
+        save_learn_interval = 100  # check for potential saves every this many iterations
         save_evol_interval = 1 
         experiment_name = 'test'
         run_name = ''

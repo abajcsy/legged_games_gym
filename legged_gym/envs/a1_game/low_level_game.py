@@ -965,11 +965,11 @@ class LowLevelGame(BaseTask):
             self.gym.refresh_rigid_body_state_tensor(self.sim)
             for i in range(self.num_envs):
                 #just draw the robot's FOV
-                self._draw_fov_rays(env_id=i)
-                self._draw_world_frame(env_id=i)
+                #self._draw_fov_rays(env_id=i)
+                #self._draw_world_frame(env_id=i)
                 if self.pred_agent_states is not None:
                     self._draw_predictions()
-                #self._draw_robot_frame(env_id=i)
+                self._draw_robot_frame(env_id=i)
                 self._draw_rel_pos(env_id=i)
             return
 
@@ -1009,15 +1009,13 @@ class LowLevelGame(BaseTask):
 
     def _draw_predictions(self):
         """Draws the predicted agent states w.r.t the agent's coordinate frame."""
-        self.gym.clear_lines(self.viewer)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-        sphere_geom_yellow = gymutil.WireframeSphereGeometry(0.02, 10, 10, None, color=(1, 1, 0))
+        sphere_geom_red = gymutil.WireframeSphereGeometry(0.02, 10, 10, None, color=(1, 0, 0))
         num_tsteps = self.pred_agent_states.shape[1]
-        for tstep in range(0, num_tsteps, 2):
+        for tstep in range(0, num_tsteps, 4):
             for i in range(self.num_envs):
                 agent_state = self.pred_agent_states[i, tstep, :]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(agent_state[0], agent_state[1], 0.05), r=None)
-                gymutil.draw_lines(sphere_geom_yellow, self.gym, self.viewer, self.envs[i], sphere_pose)
+                gymutil.draw_lines(sphere_geom_red, self.gym, self.viewer, self.envs[i], sphere_pose)
         return
 
     def _draw_rel_pos(self, env_id):
