@@ -76,6 +76,8 @@ class LowLevelGame(BaseTask):
         self.init_done = False
         self.aggregate_mode = 1
 
+        self.pred_agent_states = None
+
         self.terrain = None
 
         # parse config info
@@ -787,8 +789,8 @@ class LowLevelGame(BaseTask):
         agent_start_pose.p = gymapi.Vec3(*agent_init[:3])
 
         # the agent is initialized at a random (xyz) offset from the robot
-        min_ang = 0. #-np.pi
-        max_ang = 0.#np.pi
+        min_ang = -np.pi
+        max_ang = np.pi
         min_rad = 2.0
         max_rad = 6.0
         self.rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
@@ -962,9 +964,11 @@ class LowLevelGame(BaseTask):
             self.gym.clear_lines(self.viewer)
             self.gym.refresh_rigid_body_state_tensor(self.sim)
             for i in range(self.num_envs):
-                # just draw the robot's FOV
+                #just draw the robot's FOV
                 self._draw_fov_rays(env_id=i)
                 self._draw_world_frame(env_id=i)
+                if self.pred_agent_states is not None:
+                    self._draw_predictions()
                 #self._draw_robot_frame(env_id=i)
                 self._draw_rel_pos(env_id=i)
             return
@@ -1003,14 +1007,18 @@ class LowLevelGame(BaseTask):
             self._draw_world_frame(env_id=i)
             #self._draw_robot_frame(env_id=i)
 
-    def _draw_predictions(self, pred_agent_state_global):
+    def _draw_predictions(self):
         """Draws the predicted agent states w.r.t the agent's coordinate frame."""
-        sphere_geom_yellow = gymutil.WireframeSphereGeometry(0.02, 4, 4, None, color=(1, 1, 0))
-        for tstep in range(pred_agent_state_global.shape[0]):
+        self.gym.clear_lines(self.viewer)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        sphere_geom_yellow = gymutil.WireframeSphereGeometry(0.02, 10, 10, None, color=(1, 1, 0))
+        num_tsteps = self.pred_agent_states.shape[1]
+        for tstep in range(0, num_tsteps, 2):
             for i in range(self.num_envs):
-                agent_state = pred_agent_state_global[tstep, i, :]
+                agent_state = self.pred_agent_states[i, tstep, :]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(agent_state[0], agent_state[1], 0.05), r=None)
                 gymutil.draw_lines(sphere_geom_yellow, self.gym, self.viewer, self.envs[i], sphere_pose)
+        return
 
     def _draw_rel_pos(self, env_id):
         """Draws the relative position in the robot's coordinate frame."""

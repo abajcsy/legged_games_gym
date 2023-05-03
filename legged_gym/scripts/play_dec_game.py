@@ -58,7 +58,7 @@ def play_dec_game(args):
     # load policies of agent and robot
     evol_checkpoint = 0
     # learn_checkpoint = 1000
-    learn_checkpoint = 1600
+    learn_checkpoint = 100 #1600
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = True
 
@@ -75,7 +75,10 @@ def play_dec_game(args):
 
     #train_cfg.runner.load_run = 'Apr28_09-17-01_' # policy with (xrel, upred^t:t:10)
 
-    train_cfg.runner.load_run = 'Apr30_18-18-17_' # policy with slower HL policy frequency
+    #train_cfg.runner.load_run = 'Apr30_18-18-17_' # perfect-state policy,5 hz HL; fixed weaving agent path
+    # train_cfg.runner.load_run = 'May01_20-23-22_' # perfect-state policy, 5 hz HL; more stochastic agent path
+    #train_cfg.runner.load_run = 'May02_06-30-16_' # limited FOV policy, 5 hz HL; fixed weaving agent path
+    train_cfg.runner.load_run = 'May02_15-42-38_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint

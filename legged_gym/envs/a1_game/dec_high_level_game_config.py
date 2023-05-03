@@ -20,7 +20,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         # num_observations_robot = 1+16 # theta
         num_observations_robot = 4      # GT observations: (x_rel, theta)
         #num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
-        # num_observations_robot = 4+num_pred_steps*num_actions_agent     # GT sanity check: (x_rel, agent_action0 ... agent_actionT)
+        #num_observations_robot = 4+num_pred_steps*num_actions_agent     # GT sanity check: (x_rel, agent_action0 ... agent_actionT)
         num_observations_agent = 4          # AGENT (CUBE)
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
@@ -35,7 +35,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         send_BC_actions = True      # send optimal robot actions for the BC loss in the algorithm
         episode_length_s = 20       # episode length in seconds
         capture_dist = 0.8          # if the two agents are closer than this dist, they are captured
-        agent_dyn_type = "dubins"   # sets the agent's dynamics type: "dubins" or "integrator"
+        agent_dyn_type = "integrator"   # sets the agent's dynamics type: "dubins" or "integrator"
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
@@ -230,7 +230,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        policy_class_name = 'ActorCritic' 
+        policy_class_name = 'ActorCritic'
         #policy_class_name = 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
@@ -238,7 +238,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
-        save_learn_interval = 200  # check for potential saves every this many iterations
+        save_learn_interval = 50  # check for potential saves every this many iterations
         save_evol_interval = 1 
         experiment_name = 'test'
         run_name = ''
