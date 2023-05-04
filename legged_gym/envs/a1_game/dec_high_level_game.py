@@ -2052,7 +2052,7 @@ class DecHighLevelGame():
         """Exponentially shaped pursuit"""
         dist = torch.norm(self.agent_pos[:, :2] - self.robot_states[:, :2], p=2, dim=-1)
         max_d = torch.max(dist)
-        rew = torch.exp(dist - max_d)
+        rew = torch.exp(-dist)
         return rew
 
     def _reward_robot_foveation(self):

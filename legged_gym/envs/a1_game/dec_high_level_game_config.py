@@ -8,13 +8,13 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         debug_viz = False
-        robot_hl_dt = 0.2   # 5 Hz
+        robot_hl_dt = 0.02   # 1 / robot_hl_dt is the Hz
 
         num_envs = 3000 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
         num_pred_steps = 0              # number of steps to *predict* into the future
-        num_hist_steps = 20             # 4 seconds of history
+        num_hist_steps = 3 #20             # history length
 
         # num_observations_robot = 1
         # num_observations_robot = 1+16 # theta
@@ -142,13 +142,13 @@ class DecHighLevelGameCfg( BaseConfig ):
     class rewards_robot: # ROBOT!
         only_positive_rewards = False
         class scales:
-            pursuit = -0.0
-            exp_pursuit = -1.0
+            pursuit = -1.0
+            exp_pursuit = 0.0 #1.0
             command_norm = -0.0
             robot_foveation = 0.0
             robot_ang_vel = -0.0
             path_progress = 0.0
-            termination = 100.0
+            termination = 0.0
 
     class rewards_agent: # CUBE!
         only_positive_rewards = False
@@ -234,15 +234,16 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        #policy_class_name = 'ActorCritic'
+        # policy_class_name = 'ActorCritic'
+        # policy_class_name = 'ActorCriticWithProxy'
         policy_class_name = 'ActorCriticGames'
         algorithm_class_name = 'PPO'
-        num_steps_per_env = 12 #24          # per iteration
+        num_steps_per_env = 24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
-        save_learn_interval = 100  # check for potential saves every this many iterations
+        save_learn_interval = 200  # check for potential saves every this many iterations
         save_evol_interval = 1 
         experiment_name = 'test'
         run_name = ''
