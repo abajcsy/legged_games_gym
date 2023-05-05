@@ -1011,7 +1011,7 @@ class LowLevelGame(BaseTask):
         """Draws the predicted agent states w.r.t the agent's coordinate frame."""
         sphere_geom_red = gymutil.WireframeSphereGeometry(0.02, 10, 10, None, color=(1, 0, 0))
         num_tsteps = self.pred_agent_states.shape[1]
-        for tstep in range(0, num_tsteps, 4):
+        for tstep in range(0, num_tsteps, 1):
             for i in range(self.num_envs):
                 agent_state = self.pred_agent_states[i, tstep, :]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(agent_state[0], agent_state[1], 0.05), r=None)

@@ -264,8 +264,10 @@ class DecHighLevelGame():
         if self.num_obs_robot > 3: # TODO: kind of a hack
             self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
 
-        self.rel_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, 4, device=self.device, dtype=torch.float)
-        self.agent_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, 3, device=self.device, dtype=torch.float)
+        self.num_robot_states = self.cfg.env.num_robot_states
+        self.num_agent_states = self.cfg.env.num_agent_states
+        self.rel_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_robot_states, device=self.device, dtype=torch.float)
+        self.agent_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_agent_states, device=self.device, dtype=torch.float)
         self.robot_commands_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_actions_robot, device=self.device, dtype=torch.float)
         self.robot_commands = torch.zeros(self.num_envs, self.num_actions_robot, dtype=torch.float, device=self.device, requires_grad=False) 
 
@@ -455,8 +457,6 @@ class DecHighLevelGame():
         # clip the robot and agent's commands
         if self.command_clipping:
             command_robot = self.clip_command_robot(command_robot)
-
-        # print("[CLIPPED] command robot: ", command_robot)
 
         # NOTE: low-level policy requires 4D control
         # update the low-level simulator command since it deals with the robot
@@ -749,7 +749,7 @@ class DecHighLevelGame():
                                     device=self.device,
                                     requires_grad=False)
         # agent will just keep applying their current command over entire time horizon
-        pred_commands_agent_frame[:] = self.curr_agent_command
+        pred_commands_agent_frame[:] = self.curr_agent_command.unsqueeze(dim=1)
 
         # TODO: Note: assumes integrator dynamics! state = (x,y,z)
         curr_state = self.agent_pos.clone()
@@ -1314,7 +1314,8 @@ class DecHighLevelGame():
         #                                    limited_fov=True,
         #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
-        self.compute_observations_strategic_robot()
+        #self.compute_observations_RMA_history_robot(global_frame=False)
+        self.compute_observations_RMA_predictions_robot()
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
@@ -1512,8 +1513,12 @@ class DecHighLevelGame():
             self.data_save_tstep += 1
         # ------------------------------------------------------------------- #
 
-    def compute_observations_oracle_pred_robot(self, pred_agent=False):
-        """ Computes observations of the robot *predicting* the future state."""
+    def compute_observations_RMA_predictions_robot(self):
+        """This function can handle observations like:
+            pi_R(x^t, x^t+1:t+N)          where the x is true relative state in robot base frame
+            where the future state x^t+1:t+N is computed assuming uR == 0 for the entire future time.
+        """
+
         rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
         rel_pos_local = self.global_to_robot_frame(rel_pos_global)
 
@@ -1521,41 +1526,38 @@ class DecHighLevelGame():
         rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
         rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
 
-        self.obs_buf_robot = rel_state
+        # get the future agent actions (in the robot's coordinate frame)
+        pred_rel_state_robot_frame, pred_agent_state_agent_frame = \
+            self._predict_random_straight_line_command_agent(pred_hor=self.num_pred_steps)
 
-        if pred_agent:
-            # get the future agent actions (in the robot's coordinate frame)
-            pred_rel_state_robot_frame, pred_agent_state_agent_frame = \
-                self._predict_random_straight_line_command_agent(pred_hor=self.num_pred_steps)
+        # NOTE: pred_rel_state_robot_frame includes current state and future states:
+        #       it's of shape: [num_envs x (N+1) x (x,y,z,theta)_rel]
+        pred_rel_state_robot_frame_flat = torch.flatten(pred_rel_state_robot_frame, start_dim=1)
 
-            # future_agent_actions, pred_agent_state_agent_frame = self._predict_weaving_command_agent(
-            #     pred_hor=self.num_pred_steps,
-            #     change_coord_frame=True,
-            #     return_state=self.debug_viz)
+        # obs buf is laid out:
+        #   (x^t, x^t+1:t+N)
+        self.obs_buf_robot = pred_rel_state_robot_frame_flat
 
-            if self.debug_viz:
-                # store the predictions in the low-level game for vizualization
-                self.ll_env.pred_agent_states = pred_agent_state_agent_frame
+        if self.debug_viz:
+            self.ll_env.pred_agent_states = pred_agent_state_agent_frame
 
-            pred_rel_state_robot_frame_flat = torch.flatten(pred_rel_state_robot_frame, start_dim=1)
-
-            #self.obs_buf_robot = torch.cat((rel_state, pred_rel_state_robot_frame_flat), dim=-1)
-
-    def compute_observations_strategic_robot(self, limited_fov=False):
+    def compute_observations_RMA_history_robot(self, global_frame=False):
         """This function can handle observations like:
-            pi_R(x^t-N:t, uR^t-N:t-1)                           where the x is true relative state in robot base frame
-            pi_R(hat{x}^t-N:t, hat{Sigma}^t-N:t, uR^t-N:t-1)    where hat{x} is estimated state, hat{Sigma} is covariance
+            pi_R(x^t-N:t, uR^t-N:t-1)     where the x is true relative state in robot base frame
         """
         rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
         rel_pos_local = self.global_to_robot_frame(rel_pos_global)
-
-        # from robot's POV, get its sensing
         rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
-        rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
+
+        if global_frame:
+            rel_state = torch.cat((rel_pos_global, rel_yaw_local), dim=-1)
+        else:
+            rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
+
         state_dim = rel_state.shape[1]
 
         # obs buf is laid out:
-        #   x^t, x^t-1:x^t-N, u^t-1:u^t-N
+        #   (x^t, x^t-1:x^t-N, u^t-1:u^t-N) the positions could be in global OR robot body frame; rest are in robot body frame
         self.obs_buf_robot = torch.cat((rel_state,
                                         self.rel_state_hist.reshape(self.num_envs, self.num_hist_steps*state_dim),
                                         self.robot_commands_hist.reshape(self.num_envs, self.num_hist_steps*self.num_actions_robot)),
@@ -1564,18 +1566,18 @@ class DecHighLevelGame():
         if self.debug_viz:
             self.ll_env.pred_agent_states = self.agent_state_hist
 
-        # update the history vectors 
-        # rel state hist is of shape [num_envs x num_hist_steps x 4]
+        # update the history vectors:
+        #   rel state hist is of shape [num_envs x num_hist_steps x num_robot_states]
         self.rel_state_hist = torch.cat((rel_state.unsqueeze(1),
                                         self.rel_state_hist[:, 0:self.num_hist_steps-1, :]), 
                                         dim=1)
+        #   robot cmd hist is of shape [num_envs x num_hist_steps x num_agent_states]
+        self.robot_commands_hist = torch.cat((self.robot_commands.unsqueeze(1),
+                                        self.robot_commands_hist[:, 0:self.num_hist_steps-1, :]), dim=1)
+        #   For debug visualization: update agent state history
         self.agent_state_hist = torch.cat((self.agent_pos[:, :3].unsqueeze(1),
                                         self.agent_state_hist[:, 0:self.num_hist_steps-1, :]),
                                         dim=1)
-        # robot cmd hist is of shape [num_envs x num_hist_steps x 3]
-        self.robot_commands_hist = torch.cat((self.robot_commands.unsqueeze(1), 
-                                        self.robot_commands_hist[:, 0:self.num_hist_steps-1, :]), dim=1)
-
 
     def compute_observations_state_hist_robot(self, limited_fov=False):
         """ Computes observations of the robot with a state history (instead of estimator)
