@@ -45,7 +45,7 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 3
+    max_num_envs = 5
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = True
 
@@ -59,7 +59,7 @@ def play_dec_game(args):
     # load policies of agent and robot
     evol_checkpoint = 0
     # learn_checkpoint = 1000
-    learn_checkpoint = 200
+    learn_checkpoint = 1400
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = True
 
@@ -79,12 +79,29 @@ def play_dec_game(args):
     #train_cfg.runner.load_run = 'Apr30_18-18-17_' # perfect-state policy,5 hz HL; fixed weaving agent path
     # train_cfg.runner.load_run = 'May01_20-23-22_' # perfect-state policy, 5 hz HL; more stochastic agent path
     #train_cfg.runner.load_run = 'May02_06-30-16_' # limited FOV policy, 5 hz HL; fixed weaving agent path
-    train_cfg.runner.load_run = 'May03_14-34-28_'
+
+    #train_cfg.runner.load_run = 'May03_19-55-57_' # 0.02 dt, 3-step history, only pursuit reward
+    #train_cfg.runner.load_run = 'May04_03-57-17_' # 0.02 dt, 3-step history, exp_pursuit + 1000*term
+    # train_cfg.runner.load_run = 'May04_03-59-49_' # 0.2 dt, 3-step history, exp_pursuit + 1000*term
+    # train_cfg.runner.load_run ='May04_04-48-07_' # 0.2 dt, 8-step history, exp_pursuit + 1000*term
+
+    # train_cfg.runner.load_run = 'May04_10-32-17_' # 0.02 dt, 3-step history, pursuit; world frame position, angle in body frame
+    #train_cfg.runner.load_run = 'May04_12-15-56_' #'May04_13-19-17_' # 0.02 dt, 3-step history, pursuit; world frame position, angle and robot ctrls in body frame
+
+    #train_cfg.runner.load_run = 'May04_13-56-21_' # 0.02 dt, 3-step history, pursuit rew; body frame observations
+    #train_cfg.runner.load_run = 'May04_14-54-46_' # 0.02 dt, 3-step history, pursuit + terminal rew; body frame observations
+
+    # train_cfg.runner.load_run = 'May04_18-26-33_' # 0.02 dt, 3-step FUTURE, pursuit + terminal rew; body frame observations
+    #train_cfg.runner.load_run = 'May05_04-36-41_' #'May05_11-00-12_'  # 0.2 dt, 3-step FUTURE, pursuit + terminal rew; body frame observations
+    # train_cfg.runner.load_run = 'May05_04-47-21_'   # 0.2 dt, 8-step FUTURE, pursuit + terminal rew; body frame observations
+
+    train_cfg.runner.load_run = 'May06_09-41-34_' #'May05_23-57-10_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.evol_checkpoint_agent = evol_checkpoint
+
     dec_ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy_agent = dec_ppo_runner.get_inference_policy(agent_id=0, device=env.device)
     policy_robot = dec_ppo_runner.get_inference_policy(agent_id=1, device=env.device)

@@ -21,14 +21,16 @@ class DecHighLevelGameCfg( BaseConfig ):
         # num_observations_robot = 1
         # num_observations_robot = 1+16 # theta
         #num_observations_robot = 4      # GT observations: (x_rel, theta)
-        #num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
-        num_observations_robot = num_robot_states*(num_hist_steps+1) #+ num_actions_robot*num_hist_steps # pi(x^t-N:t, uR^t-N:t-1)
+        # num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
+        # num_observations_robot = num_robot_states*(num_hist_steps+1) + num_actions_robot*num_hist_steps # HISTORY: pi(x^t-N:t, uR^t-N:t-1)
+        # num_observations_robot = num_robot_states * (num_pred_steps + 1)  # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        num_observations_robot = num_robot_states*2       # CURR AGENT VEL PRIVILEDGE INFO: pi(x^t, vxA^t, vyA^t, vTh^t)
         num_observations_agent = 4          # AGENT (CUBE)
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
 
-        num_obs_encoded_robot = num_observations_robot - num_robot_states # how many of the observations are encoded?
-        num_obs_encoded_agent = 4
+        num_obs_encoded_robot = None #num_observations_robot - num_robot_states # how many of the observations are encoded?
+        num_obs_encoded_agent = None #4
         embedding_sz_robot = 8
         embedding_sz_agent = 2
 
@@ -236,12 +238,12 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        # policy_class_name = 'ActorCritic'
+        policy_class_name = 'ActorCritic'
         # policy_class_name = 'ActorCriticWithProxy'
-        policy_class_name = 'ActorCriticGames'
+        # policy_class_name = 'ActorCriticGames'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 24          # per iteration
-        max_iterations = 2001           # number of policy updates per agent
+        max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging

@@ -393,11 +393,13 @@ class DecHighLevelGame():
 
         # state for agent policy simulation -- INTEGRATOR FIXED RANDOM VEL AGENT
         self.agent_command_scale = 1.2
-        rand_vel_cmds = self.agent_command_scale * torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
-        rand_sign = torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
-        rand_sign[rand_sign > 0.5] = 1
-        rand_sign[rand_sign < 0.5] = -1
-        self.curr_agent_command = rand_sign * rand_vel_cmds
+        # rand_vel_cmds = self.agent_command_scale * torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
+        # rand_sign = torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
+        # rand_sign[rand_sign > 0.5] = 1
+        # rand_sign[rand_sign < 0.5] = -1
+        # self.curr_agent_command = rand_sign * rand_vel_cmds
+        self.curr_agent_command = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
+
 
         # Reward debugging saving info
         self.save_rew_data = False
@@ -743,32 +745,30 @@ class DecHighLevelGame():
         """Predicts the straight line command of the agent and returns the ctrls"""
 
         # agent commands in the agent's coordinate frame of shape: [num_envs x N x (vx, vy)]
-        pred_commands_agent_frame = torch.zeros(self.num_envs,
+        future_agent_cmds_agent_frame = torch.zeros(self.num_envs,
                                     pred_hor,
                                     self.num_actions_agent,
                                     device=self.device,
                                     requires_grad=False)
         # agent will just keep applying their current command over entire time horizon
-        pred_commands_agent_frame[:] = self.curr_agent_command.unsqueeze(dim=1)
+        future_agent_cmds_agent_frame[:] = self.curr_agent_command.unsqueeze(dim=1)
 
         # TODO: Note: assumes integrator dynamics! state = (x,y,z)
-        curr_state = self.agent_pos.clone()
-        num_states_a = 3
+        curr_agent_state = self.agent_pos[:, :3].clone()
         # future agent state in tensor of shape: [num_envs x (N+1) x (x,y,z)]
-        pred_agent_state_agent_frame = torch.zeros(self.num_envs,
+        future_agent_states = torch.zeros(self.num_envs,
                                                    pred_hor + 1,
-                                                   num_states_a,
+                                                   self.num_agent_states,
                                                    device=self.device,
                                                    requires_grad=False)
-        pred_agent_state_agent_frame[:, 0, :] = curr_state
+        future_agent_states[:, 0, :] = curr_agent_state
 
         # future relative state w.r.t robot base frame assuming uR == 0 over prediction horizon.
         #   4-dim relative state = (x, y, z, theta)
-        num_states_r = 4
         # future relative state in tensor of shape: [num_envs x (N+1) x (x,y,z,theta)_rel]
-        pred_rel_state_robot_frame = torch.zeros(self.num_envs,
+        future_rel_states_robot_frame = torch.zeros(self.num_envs,
                                                 pred_hor + 1,
-                                                num_states_r,
+                                                self.num_robot_states,
                                                 device=self.device,
                                                 requires_grad=False)
 
@@ -777,47 +777,55 @@ class DecHighLevelGame():
         rel_pos_local = self.global_to_robot_frame(rel_pos_global)
         rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
         rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
-        pred_rel_state_robot_frame[:, 0, :] = rel_state
+        future_rel_states_robot_frame[:, 0, :] = rel_state
 
-        B_a = self.hl_dt * torch.eye(num_states_r, self.num_actions_agent, device=self.device, requires_grad=False)
-        B_a[2, -1] = 0 # TODO: this is a hack; agent doesn't ctrl z-vel and isn't modelled to influence rel angle
-        B_a[-1, -1] = 0
-        B_a_tensor = B_a.repeat(self.num_envs, 1).reshape(self.num_envs, num_states_r, self.num_actions_agent)
+        # B_a = self.hl_dt * torch.eye(self.num_robot_states, self.num_actions_agent, device=self.device, requires_grad=False)
+        # B_a[2, -1] = 0 # TODO: this is a hack; agent doesn't ctrl z-vel and isn't modelled to influence rel angle
+        # B_a[-1, -1] = 0
+        # B_a_tensor = B_a.repeat(self.num_envs, 1).reshape(self.num_envs, self.num_robot_states, self.num_actions_agent)
 
         # for each future timestep
         for tstep in range(pred_hor):
 
             # simulate the other agent at the same frequency as the high-level policy gets executed
-            curr_state[:, 0] += self.hl_dt * pred_commands_agent_frame[:, tstep, 0]
-            curr_state[:, 1] += self.hl_dt * pred_commands_agent_frame[:, tstep, 1]
-            curr_state[:, 2] += 0.
-            pred_agent_state_agent_frame[:, tstep+1, :] = curr_state
+            curr_agent_state = self.agent_single_integrator_dynamics(curr_agent_state, future_agent_cmds_agent_frame[:, tstep, :])
+            future_agent_states[:, tstep + 1, :] = curr_agent_state
 
-            # Convert the agent's actions fo the robot coordinate frame.
-            #   Ra_r = Rw_r * Ra_w = (Rr_w)^-1 * Ra_w
-            quat_r_w = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
-            quat_a_w = self.ll_env.root_states[self.ll_env.agent_indices, 3:7]
-            quat_w_r = quat_conjugate(quat_r_w)
-            quat_a_r = quat_mul(quat_w_r, quat_a_w)
-            # pad the linear and angular velocity commands with zeros for stationary dimensions
-            command_agent_lin_vel = torch.cat((pred_commands_agent_frame[:, tstep, :],
-                                               torch.zeros(self.num_envs, 1, device=self.device,
-                                                           requires_grad=False)), dim=-1)
-            # transform from agent to the robot's coordinate frame
-            command_agent_lin_vel_r = quat_rotate_inverse(quat_a_r, command_agent_lin_vel)
-            # extract only vx and angular vel around the z-axis
-            command_agent = torch.cat((command_agent_lin_vel_r[:, 0].unsqueeze(-1),
-                                       command_agent_lin_vel_r[:, 1].unsqueeze(-1)),
-                                      dim=-1)
+            # using the future state of the other agent (assuming the robot is standing still) get the relative position
+            future_rel_pos_global = (curr_agent_state - self.robot_states[:, :3]).clone()
+            future_rel_pos_local = self.global_to_robot_frame(future_rel_pos_global)
+            future_rel_yaw_local = torch.atan2(future_rel_pos_local[:, 1], future_rel_pos_local[:, 0]).unsqueeze(-1)
+            future_rel_state = torch.cat((future_rel_pos_local, future_rel_yaw_local), dim=-1)
 
-            # TODO: CHECK THIS!
-            # evolve the relative dynamics
-            Baua = torch.bmm(B_a_tensor, command_agent.unsqueeze(-1)).squeeze(-1)
-            pred_rel_state_robot_frame[:, tstep+1, :] = pred_rel_state_robot_frame[:, tstep, :] + Baua
+            # record the future relative state
+            future_rel_states_robot_frame[:, tstep + 1, :] = future_rel_state
 
-        #import pdb; pdb.set_trace()
+            # # Convert the agent's actions fo the robot coordinate frame.
+            # #   Ra_r = Rw_r * Ra_w = (Rr_w)^-1 * Ra_w
+            # quat_r_w = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
+            # quat_a_w = self.ll_env.root_states[self.ll_env.agent_indices, 3:7]
+            # quat_w_r = quat_conjugate(quat_r_w)
+            # quat_a_r = quat_mul(quat_w_r, quat_a_w)
+            # # pad the linear and angular velocity commands with zeros for stationary dimensions
+            # command_agent_lin_vel = torch.cat((future_agent_cmds_agent_frame[:, tstep, :],
+            #                                    torch.zeros(self.num_envs, 1, device=self.device,
+            #                                                requires_grad=False)), dim=-1)
+            # # transform from agent to the robot's coordinate frame
+            # command_agent_lin_vel_r = quat_rotate_inverse(quat_a_r, command_agent_lin_vel)
+            # # extract only vx and angular vel around the z-axis
+            # command_agent = torch.cat((command_agent_lin_vel_r[:, 0].unsqueeze(-1),
+            #                            command_agent_lin_vel_r[:, 1].unsqueeze(-1)),
+            #                           dim=-1)
+            # # TODO: CHECK THIS!
+            # # evolve the relative dynamics
+            # Baua = torch.bmm(B_a_tensor, command_agent.unsqueeze(-1)).squeeze(-1)
+            # future_rel_state2 = future_rel_states_robot_frame[:, tstep, :] + Baua
+            # future_rel_states_robot_frame[:, tstep+1, :] = future_rel_state2
 
-        return pred_rel_state_robot_frame, pred_agent_state_agent_frame
+            #print("future_rel_state (v1): ", future_rel_state)
+            # print("future_rel_state (v2): ", future_rel_state2)
+
+        return future_rel_states_robot_frame, future_agent_states
 
     def _predict_weaving_command_agent(self, 
                                         pred_hor, 
@@ -982,7 +990,7 @@ class DecHighLevelGame():
     def step_agent_single_integrator(self, command_agent):
         """
         Steps agent modeled as a single integrator:
-            x' = x + dt * u1/4
+            x' = x + dt * u1
             y' = y + dt * u2
             z' = z          (assume z-dim is constant)
         """
@@ -1015,6 +1023,20 @@ class DecHighLevelGame():
                                                      gymtorch.unwrap_tensor(self.ll_env.root_states),
                                                      gymtorch.unwrap_tensor(agent_env_ids_int32),
                                                      len(agent_env_ids_int32))
+
+    def agent_single_integrator_dynamics(self, agent_state, command_agent):
+        """
+        Simulates the agent physics according to the HIGH LEVEL timestep:
+            x' = x + hl_dt * u1
+            y' = y + hl_dt * u2
+            z' = z
+        """
+        next_state = torch.zeros(agent_state.shape[0], agent_state.shape[1], device=self.device, requires_grad=False)
+        next_state[:, 0] = agent_state[:, 0] + self.hl_dt * command_agent[:, 0]
+        next_state[:, 1] = agent_state[:, 1] + self.hl_dt * command_agent[:, 1]
+        next_state[:, 2] = agent_state[:, 2] 
+
+        return next_state
 
     def step_agent_dubins_car(self, command_agent):
         """
@@ -1190,6 +1212,7 @@ class DecHighLevelGame():
         self.robot_commands[env_ids, :] = 0.
         self.agent_state_hist[env_ids, :, :] = 0.
 
+        # =========== Moving Agent Policy Setup ========= #
         # simulated agent information
         rand_vel_cmds = self.agent_command_scale * torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
         rand_sign = torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
@@ -1197,7 +1220,25 @@ class DecHighLevelGame():
         rand_sign[rand_sign < 0.5] = -1
         self.curr_agent_command[env_ids, :] = rand_sign[env_ids, :] * rand_vel_cmds[env_ids, :]
 
-        self.last_robot_pos[env_ids, :] = self.ll_env.env_origins[env_ids, :3] # reset last robot position to the reset pos
+        # check the angle between the agent's velocity and the relative agent-robot position is making the agent go *towards* the robot
+        rel_xy_global = self.agent_pos[env_ids, :2] - self.robot_states[env_ids, :2]
+        agent_base_quat = self.ll_env.root_states[self.ll_env.agent_indices[env_ids], 3:7]
+        padded_agent_cmd_local = torch.cat((self.curr_agent_command[env_ids, :], torch.zeros(len(env_ids), 1, device=self.device, requires_grad=False)), dim=-1)
+        agent_cmd_global = quat_rotate_inverse(agent_base_quat, padded_agent_cmd_local)[:, :2]
+
+        dot = torch.bmm(rel_xy_global.view(len(env_ids), 1, self.num_actions_agent), agent_cmd_global.view(len(env_ids), self.num_actions_agent, 1)).squeeze(-1)
+        inner = torch.div(dot, (torch.norm(rel_xy_global, dim=-1) * torch.norm(agent_cmd_global, dim=-1)).view(len(env_ids), 1))
+        ang = torch.acos(inner)
+
+        # find the environments where the simulated agent is going *towards* the robot too much, and flip the sign of the commands
+        geq = torch.ge(torch.abs(ang), 2.8) # ~160 degrees
+        otw_bool = torch.any(geq, dim=1)
+        moving_towards_robot_ids = otw_bool.nonzero(as_tuple=False).flatten()
+        self.curr_agent_command[env_ids[moving_towards_robot_ids], :] *= -1.0
+        # =========== Moving Agent Policy Setup ========= #
+
+         # reset last robot position to the reset pos
+        self.last_robot_pos[env_ids, :] = self.ll_env.env_origins[env_ids, :3]
 
         # fill extras
         self.extras["episode"] = {}
@@ -1268,7 +1309,7 @@ class DecHighLevelGame():
         if "termination" in self.reward_scales_robot:
             # rew = self._reward_termination() * self.reward_scales_robot["termination"]
             rew_capture = self.capture_buf * self.reward_scales_robot["termination"] # TODO: THIS IS A HACK!!!
-            rew_other = torch.logical_xor(self.reset_buf, self.capture_buf) * -1 * self.reward_scales_robot["termination"]
+            rew_other = 0. #torch.logical_xor(self.reset_buf, self.capture_buf) * -1 * self.reward_scales_robot["termination"]
             rew = rew_capture + rew_other
             # rew = self.capture_buf * self.reward_scales_robot["termination"] # TODO: THIS IS A HACK!!!
             self.rew_buf_robot += rew
@@ -1304,46 +1345,38 @@ class DecHighLevelGame():
         sense_obstacles = self.cfg.terrain.fov_measure_heights
 
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
-        # self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
+        #self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
-        # self.compute_observations_oracle_pred_robot(pred_agent=False)
         # self.compute_observations_KF_robot(command_robot,
         #                                    command_agent,
         #                                    limited_fov=True,
         #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
-        #self.compute_observations_RMA_history_robot(global_frame=False)
-        self.compute_observations_RMA_predictions_robot()
+        self.compute_observations_RMA_history_robot(use_pos_and_vel=True)
+        # self.compute_observations_RMA_predictions_robot()
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
     def compute_observations_pos_robot(self):
-        """ Computes observations of the agent with full FOV
+        """ Computes observations of the agent with full FOV in the GLOBAL coordinate frame
         """
         # from robot's POV, get the relative position to the agent
-        rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        self.obs_buf_robot = rel_agent_pos_xyz
+        rel_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
+        self.obs_buf_robot = rel_pos_xyz
 
     def compute_observations_pos_angle_robot(self):
-        """ Computes observations of the agent with full FOV
+        """ Computes relative position and angle w.r.t robot's base frame.
         """
         # from robot's POV, get the relative position to the agent
-        rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
-        robot_base_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
-        _, _, robot_yaw = get_euler_xyz(robot_base_quat)
-        robot_yaw = wrap_to_pi(robot_yaw)
+        rel_pos_global = self.agent_pos[:, :3] - self.robot_states[:, :3]
+        rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+        rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
 
-        rel_yaw_global = torch.atan2(rel_agent_pos_xyz[:, 1], rel_agent_pos_xyz[:, 0]) - robot_yaw
-        rel_yaw_global = rel_yaw_global.unsqueeze(-1)
-        rel_yaw_global = wrap_to_pi(rel_yaw_global)
-
-        self.obs_buf_robot = torch.cat((rel_agent_pos_xyz * 0.1,
-                                        rel_yaw_global # robot_yaw.unsqueeze(-1)
-                                      #torch.cos(rel_yaw_global),
-                                      #torch.sin(rel_yaw_global)
-                                      ), dim=-1)
+        pos_scale = 0.1
+        self.obs_buf_robot = torch.cat((rel_pos_local * pos_scale,
+                                        rel_yaw_local), dim=-1)
 
     def compute_observations_full_obs_robot(self):
         """ Computes observations of the robot with partial observability.
@@ -1541,29 +1574,54 @@ class DecHighLevelGame():
         if self.debug_viz:
             self.ll_env.pred_agent_states = pred_agent_state_agent_frame
 
-    def compute_observations_RMA_history_robot(self, global_frame=False):
+    def compute_observations_RMA_history_robot(self, use_pos_and_vel=False):
         """This function can handle observations like:
-            pi_R(x^t-N:t, uR^t-N:t-1)     where the x is true relative state in robot base frame
+            pi_R(x^t, x^t-1:t-N:, uR^t-1:t-N)     where the x is true relative state in robot base frame
+            pi_R(x^t, dx^t)     where the x is true relative state, and dx is the velocity of the relative state in robot's frame
         """
         rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
-        rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+        rel_pos_local = self.global_to_robot_frame(rel_pos_global) # quat_rotate_inverse -- point is rotated with respect to the coordinate system (?)
         rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
-
-        if global_frame:
-            rel_state = torch.cat((rel_pos_global, rel_yaw_local), dim=-1)
-        else:
-            rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
+        rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
 
         state_dim = rel_state.shape[1]
+        pos_scale = 0.1 # scale the relative position components to match the scale of other observations
 
-        # obs buf is laid out:
-        #   (x^t, x^t-1:x^t-N, u^t-1:u^t-N) the positions could be in global OR robot body frame; rest are in robot body frame
-        self.obs_buf_robot = torch.cat((rel_state,
-                                        self.rel_state_hist.reshape(self.num_envs, self.num_hist_steps*state_dim),
-                                        self.robot_commands_hist.reshape(self.num_envs, self.num_hist_steps*self.num_actions_robot)),
-                                        dim=-1)
+        if use_pos_and_vel is False:
+            # scale the positional (xyz) components
+            rel_state[:, :-1] *= pos_scale
+
+            # obs buf is laid out:
+            #   (x^t, x^t-1:x^t-N, u^t-1:u^t-N) the positions could be in global OR robot body frame; rest are in robot body frame
+            self.obs_buf_robot = torch.cat((rel_state,
+                                            self.rel_state_hist.reshape(self.num_envs, self.num_hist_steps*state_dim),
+                                            self.robot_commands_hist.reshape(self.num_envs, self.num_hist_steps*self.num_actions_robot)),
+                                            dim=-1)
+        else:
+            # scale the positional (xyz) components
+            rel_state[:, :-1] *= pos_scale
+
+            # next agent state in global coord frame
+            next_agent_pos_global = self.agent_single_integrator_dynamics(self.agent_pos, self.curr_agent_command)
+
+            # compute the next relative position assume the robot stays where it is
+            next_rel_pos_global = next_agent_pos_global - self.robot_states[:, :3]
+
+            # get the next relative position and angle in robot's coordinate frame
+            next_rel_pos_local = self.global_to_robot_frame(next_rel_pos_global)
+            next_rel_yaw_local = torch.atan2(next_rel_pos_local[:, 1], next_rel_pos_local[:, 0]).unsqueeze(-1)
+
+            # get estimated relative angular velocity in robot's coordinate frame
+            rel_lin_vel_robot_frame = next_rel_pos_local - rel_pos_local
+            rel_yaw_vel_robot_frame = wrap_to_pi(next_rel_yaw_local - rel_yaw_local)
+
+            self.obs_buf_robot = torch.cat((rel_state,
+                                            rel_lin_vel_robot_frame,
+                                            rel_yaw_vel_robot_frame),
+                                            dim=-1)
 
         if self.debug_viz:
+            # for visualization
             self.ll_env.pred_agent_states = self.agent_state_hist
 
         # update the history vectors:
@@ -1887,7 +1945,21 @@ class DecHighLevelGame():
     def global_to_robot_frame(self, global_vec):
         """Transforms (xyz) global vector to robot's local coordinate frame."""
         robot_base_quat_global = self.ll_env.root_states[self.ll_env.robot_indices, 3:7].clone()
-        # local_vec = quat_rotate(robot_base_quat_global, global_vec)
+        
+        # robot_base_quat_global = self.ll_env.root_states[self.ll_env.robot_indices, 3:7].clone()
+        # local_vec = quat_rotate(robot_base_quat_global, rel_pos_global) # quat_rotate -- coordinate system is rotated with respect to the point (?)
+        # local_yaw = torch.atan2(local_vec[:, 1], local_vec[:, 0]).unsqueeze(-1)
+        # rel_state_B = torch.cat((local_vec, local_yaw), dim=-1)
+        #
+        # rel_pos_global_w = torch.cat((rel_pos_global, torch.zeros(self.num_envs, 1, device=self.device)), dim=-1)
+        # local_vec2 = quat_mul(quat_conjugate(robot_base_quat_global), quat_mul(robot_base_quat_global, rel_pos_global_w))
+        # local_yaw2 = torch.atan2(local_vec2[:, 1], local_vec2[:, 0]).unsqueeze(-1)
+        # rel_state_C = torch.cat((local_vec2[:, :3], local_yaw2), dim=-1)
+
+        # print("(quat_rotate_inverse) rel state robot frame: ", rel_state_A)
+        # print("(quat_rotate) rel state robot frame: ", rel_state_B)
+        # print("(eqn) rel state robot frame: ", rel_state_C)
+
         local_vec = quat_rotate_inverse(robot_base_quat_global, global_vec)
         return local_vec
 
