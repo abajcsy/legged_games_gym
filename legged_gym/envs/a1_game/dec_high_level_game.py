@@ -2130,20 +2130,21 @@ class DecHighLevelGame():
         return rew
 
     def _reward_robot_foveation(self):
-        """Reward for the robot facing the agemt"""
-        rel_yaw_global = self.get_rel_yaw_global_robot()
-        rel_yaw_global = rel_yaw_global.squeeze(-1)
+        """Reward for the robot facing the agent"""
+        rel_pos_global = self.agent_pos[:, :3] - self.robot_states[:, :3]
+        rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+        rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0])
 
         # Exponential-type reward
-        # rew = torch.exp(-torch.abs(rel_yaw_global))
+        # rew = torch.exp(-torch.abs(rel_yaw_local))
 
         # "Relu"-type reward
         offset = np.pi / 3
         max_rew_val = 0.9
 
         slope = 1.0 #0.45
-        diff_left = slope * rel_yaw_global + offset
-        diff_right = slope * rel_yaw_global - offset
+        diff_left = slope * rel_yaw_local + offset
+        diff_right = slope * rel_yaw_local - offset
 
         # relu_left = torch.clamp(diff_left, min=0)   # max(0, diff_left)
         # relu_right = -torch.clamp(diff_right, max=0) # -min(0, diff_right)
@@ -2152,8 +2153,8 @@ class DecHighLevelGame():
         relu_right = -diff_right # -min(0, diff_right)
 
         val = torch.zeros_like(relu_left)
-        val[rel_yaw_global > 0] = relu_right[rel_yaw_global > 0]
-        val[rel_yaw_global <= 0] = relu_left[rel_yaw_global <= 0]
+        val[rel_yaw_local > 0] = relu_right[rel_yaw_local > 0]
+        val[rel_yaw_local <= 0] = relu_left[rel_yaw_local <= 0]
         rew = torch.clamp(val, max=max_rew_val) # min(min(a,b), max_rew_val)
 
         # ------------------------------------------------------------------- #
@@ -2162,11 +2163,11 @@ class DecHighLevelGame():
         if self.save_rew_data:
             if self.fov_reward is None:
                 self.fov_reward = rew.unsqueeze(0)
-                self.fov_rel_yaw = rel_yaw_global.unsqueeze(0)
+                self.fov_rel_yaw = rel_yaw_local.unsqueeze(0)
                 self.ll_env_command_ang_vel = self.ll_env.commands[:, 2].unsqueeze(0)
             else:
                 self.fov_reward = torch.cat((self.fov_reward, rew.unsqueeze(0)), dim=0)
-                self.fov_rel_yaw = torch.cat((self.fov_rel_yaw, rel_yaw_global.unsqueeze(0)), dim=0)
+                self.fov_rel_yaw = torch.cat((self.fov_rel_yaw, rel_yaw_local.unsqueeze(0)), dim=0)
                 self.ll_env_command_ang_vel = torch.cat((self.ll_env_command_ang_vel, self.ll_env.commands[:, 2].unsqueeze(0)), dim=0)
 
             if self.rew_debug_tstep % self.rew_debug_interval == 0:

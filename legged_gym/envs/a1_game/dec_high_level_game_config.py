@@ -149,10 +149,10 @@ class DecHighLevelGameCfg( BaseConfig ):
             pursuit = -1.0 #0.0
             exp_pursuit = 0. #1.0
             command_norm = -0.0
-            robot_foveation = 0.0
+            robot_foveation = 0.5
             robot_ang_vel = -0.0
             path_progress = 0.0
-            termination = 1000.0
+            termination = 100.0
 
     class rewards_agent: # CUBE!
         only_positive_rewards = False
