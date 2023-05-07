@@ -59,7 +59,7 @@ def play_dec_game(args):
     # load policies of agent and robot
     evol_checkpoint = 0
     # learn_checkpoint = 1000
-    learn_checkpoint = 800
+    learn_checkpoint = 1000
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = True
 
@@ -97,7 +97,8 @@ def play_dec_game(args):
 
     # train_cfg.runner.load_run = 'May06_20-18-47_' #'May06_09-41-34_' #'May05_23-57-10_'
     #train_cfg.runner.load_run = 'May06_23-05-56_' # pi(x, dx) with 0.5 * foveation + pursuit + 100 * terminal
-    train_cfg.runner.load_run = 'May07_00-00-04_' # pi(x, dx) with 5.0 * foveation + pursuit + 100 * terminal
+    # train_cfg.runner.load_run = 'May07_00-00-04_' # pi(x, dx) with 5.0 * foveation + pursuit + 100 * terminal
+    train_cfg.runner.load_run = 'May06_23-44-55_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint

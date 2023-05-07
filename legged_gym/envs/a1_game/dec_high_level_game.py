@@ -1212,12 +1212,12 @@ class DecHighLevelGame():
             self.last_turn_tstep[env_ids, 0] = 1
             self.last_straight_tstep[env_ids, 0] = 1
             self.turn_or_straight_idx[env_ids, 0] = 0   # 0 == turn, 1 == straight
-            self.turn_direction_idx[env_ids, 0] = 0    # 0 == turn left, 1 == turn right
+            self.turn_direction_idx[env_ids, :] = torch.randint(0, 2, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False) #0    # 0 == turn left, 1 == turn right
             self.curr_agent_command[env_ids, :] = 0.
 
             # choose a random turning frequency and straight frequency
-            self.curr_turn_freq[env_ids, :] = torch.randint(50, 100, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False)
-            self.curr_straight_freq[env_ids, :] = torch.randint(100, 200, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False)
+            self.curr_turn_freq[env_ids, :] = torch.randint(50, 101, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False)
+            self.curr_straight_freq[env_ids, :] = torch.randint(100, 201, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False)
 
         else:
             print("[reset_idx()] ERROR: unsupported agent dynamics type.")
