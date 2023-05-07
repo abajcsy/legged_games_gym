@@ -131,6 +131,10 @@ class DecHighLevelGame():
         ll_env_cfg.noise.add_noise = self.cfg.noise.add_noise
         ll_env_cfg.noise.noise_level = self.cfg.noise.noise_level
 
+        # Setup the low-level env to know about the cube agent's parameters.
+        ll_env_cfg.env.agent_ang = self.cfg.env.agent_ang
+        ll_env_cfg.env.agent_rad = self.cfg.env.agent_rad
+
         # TODO: NOTE -- the low-level game is in charge of creating the simulation and terrain
         #  (i.e., only the LL game calls create_sim())
 
@@ -792,38 +796,37 @@ class DecHighLevelGame():
         return future_rel_states_robot_frame, future_agent_states
 
     def _predict_weaving_command_agent(self, 
-                                        pred_hor, 
-                                        change_coord_frame=False, 
-                                        return_state=False):
+                                        pred_hor):
         """Predicts the weaving command of the agent and returns the ctrls"""
 
-        # agent commands in the robot's local coordinate frame
-        pred_commands_robot_frame = torch.zeros(self.num_envs,
-                                    pred_hor, 
-                                    self.num_actions_agent, 
-                                    device=self.device, 
-                                    requires_grad=False)
-
         # agent commands in the agent's coordinate frame
-        pred_commands_agent_frame = torch.zeros(self.num_envs,
-                                    pred_hor, 
-                                    self.num_actions_agent, 
-                                    device=self.device, 
-                                    requires_grad=False)
-
-
-        # TODO: Note: assumes dubins car dynamics! state = (x,y,z,theta)
-        curr_state = torch.cat((self.agent_pos.clone(), 
-                                        self.agent_heading.unsqueeze(0).clone()
-                                        ), 
-                                        dim=-1)
-        pred_agent_state_agent_frame = torch.zeros(pred_hor + 1, 
-                                        self.num_envs, 
-                                        4, 
+        future_agent_cmds_agent_frame = torch.zeros(self.num_envs,
+                                        pred_hor, 
+                                        self.num_actions_agent, 
                                         device=self.device, 
                                         requires_grad=False)
-        pred_agent_state_agent_frame[0,:,:] = curr_state
 
+        # TODO: Note: assumes dubins car dynamics! state = (x,y,z,theta)
+        curr_agent_state = torch.cat((self.agent_pos.clone(), 
+                                self.agent_heading.unsqueeze(0).clone()
+                                ), 
+                                dim=-1)
+        # future agent state in tensor of shape: [num_envs x (N+1) x (x,y,z)]
+        future_agent_states = torch.zeros(self.num_envs,
+                                    pred_hor + 1, 
+                                    self.num_agent_states, 
+                                    device=self.device, 
+                                    requires_grad=False)
+        future_agent_states[:, 0, :] = curr_agent_state
+
+        # future relative state w.r.t robot base frame assuming uR == 0 over prediction horizon.
+        #   4-dim relative state = (x, y, z, theta)
+        # future relative state in tensor of shape: [num_envs x (N+1) x (x,y,z,theta)_rel]
+        future_rel_states_robot_frame = torch.zeros(self.num_envs,
+                                                pred_hor + 1,
+                                                self.num_robot_states,
+                                                device=self.device,
+                                                requires_grad=False)
 
         turn_or_straight_idx = self.turn_or_straight_idx.clone()
         last_turn_tstep = self.last_turn_tstep.clone()
@@ -846,38 +849,42 @@ class DecHighLevelGame():
 
             pred_commands_agent_frame[:, tstep, :] = command_agent.clone()
 
-            if return_state:
-                curr_state = self.agent_dubins_car_dynamics(curr_state, pred_commands_agent_frame[:, tstep, :])
-                pred_agent_state_agent_frame[tstep, :, :] = curr_state
+            curr_agent_state = self.agent_dubins_car_dynamics(curr_agent_state, pred_commands_agent_frame[:, tstep, :])
+            future_agent_states[:, tstep + 1, :] = curr_agent_state
 
-            if change_coord_frame:
-                # Convert the agent's actions fo the robot coordinate frame.
-                #   Ra_r = Rw_r * Ra_w = (Rr_w)^-1 * Ra_w
-                quat_r_w = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
-                quat_a_w = self.ll_env.root_states[self.ll_env.agent_indices, 3:7]
-                quat_w_r = quat_conjugate(quat_r_w)
-                quat_a_r = quat_mul(quat_w_r, quat_a_w)
-                # pad the linear and angular velocity commands with zeros for stationary dimensions
-                command_agent_lin_vel = torch.cat((command_agent[:, 0].unsqueeze(-1),
-                                                    torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
-                                                    torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)),
-                                                    dim=-1)
-                command_agent_ang_vel = torch.cat((torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
-                                                    torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
-                                                    command_agent[:, 1].unsqueeze(-1)),
-                                                    dim=-1)
-                # transform from agent to the robot's coordinate frame
-                command_agent_vlin = quat_rotate_inverse(quat_a_r, command_agent_lin_vel)
-                command_agent_vang = quat_rotate_inverse(quat_a_r, command_agent_ang_vel)
-                # extract only vx and angular vel around the z-axis
-                command_agent = torch.cat((command_agent_vlin[:, 0].unsqueeze(-1),
-                                           command_agent_vang[:, -1].unsqueeze(-1)),
-                                          dim=-1)
+            # using the future state of the other agent (assuming the robot is standing still) get the relative position
+            future_rel_pos_global = (curr_agent_state[:, :3] - self.robot_states[:, :3]).clone()
+            future_rel_pos_local = self.global_to_robot_frame(future_rel_pos_global)
+            future_rel_yaw_local = torch.atan2(future_rel_pos_local[:, 1], future_rel_pos_local[:, 0]).unsqueeze(-1)
+            future_rel_state = torch.cat((future_rel_pos_local, future_rel_yaw_local), dim=-1)
 
-            pred_commands_robot_frame[:, tstep, :] = command_agent.clone()   
+            # # Convert the agent's actions fo the robot coordinate frame.
+            # #   Ra_r = Rw_r * Ra_w = (Rr_w)^-1 * Ra_w
+            # quat_r_w = self.ll_env.root_states[self.ll_env.robot_indices, 3:7]
+            # quat_a_w = self.ll_env.root_states[self.ll_env.agent_indices, 3:7]
+            # quat_w_r = quat_conjugate(quat_r_w)
+            # quat_a_r = quat_mul(quat_w_r, quat_a_w)
+            # # pad the linear and angular velocity commands with zeros for stationary dimensions
+            # command_agent_lin_vel = torch.cat((command_agent[:, 0].unsqueeze(-1),
+            #                                     torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
+            #                                     torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)),
+            #                                     dim=-1)
+            # command_agent_ang_vel = torch.cat((torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
+            #                                     torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False),
+            #                                     command_agent[:, 1].unsqueeze(-1)),
+            #                                     dim=-1)
+            # # transform from agent to the robot's coordinate frame
+            # command_agent_vlin = quat_rotate_inverse(quat_a_r, command_agent_lin_vel)
+            # command_agent_vang = quat_rotate_inverse(quat_a_r, command_agent_ang_vel)
+            # # extract only vx and angular vel around the z-axis
+            # command_agent = torch.cat((command_agent_vlin[:, 0].unsqueeze(-1),
+            #                            command_agent_vang[:, -1].unsqueeze(-1)),
+            #                           dim=-1)
+
+            future_rel_states_robot_frame[:, tstep + 1, :] =  future_rel_state
 
 
-        return pred_commands_robot_frame, pred_agent_state_agent_frame
+        return future_rel_states_robot_frame, future_agent_states
 
     def clip_command_robot(self, command_robot):
         """Clips the robot's commands"""
@@ -1209,15 +1216,32 @@ class DecHighLevelGame():
 
             # =========== DUBINS CAR -- Moving Agent Policy Setup ========= #
             # reset simulated agent behavior variables
+            self.curr_agent_command[env_ids, :] = 0.
             self.last_turn_tstep[env_ids, 0] = 1
             self.last_straight_tstep[env_ids, 0] = 1
             self.turn_or_straight_idx[env_ids, 0] = 0   # 0 == turn, 1 == straight
-            self.turn_direction_idx[env_ids, :] = torch.randint(0, 2, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False) #0    # 0 == turn left, 1 == turn right
-            self.curr_agent_command[env_ids, :] = 0.
+            self.turn_direction_idx[env_ids, :] = torch.randint(0, 2, 
+                                                                (len(env_ids), 1), 
+                                                                dtype=torch.int32, 
+                                                                device=self.device, 
+                                                                requires_grad=False)    # 0 == turn left, 1 == turn right
+            if not self.cfg.env.randomize_init_turn_dir:
+                # if not randomizing initial turn direction, then always turn left first
+                self.turn_direction_idx[env_ids, :] *= 0
 
             # choose a random turning frequency and straight frequency
-            self.curr_turn_freq[env_ids, :] = torch.randint(50, 101, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False)
-            self.curr_straight_freq[env_ids, :] = torch.randint(100, 201, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False)
+            self.curr_turn_freq[env_ids, :] = torch.randint(self.cfg.env.agent_turn_freq[0], 
+                                                            self.cfg.env.agent_turn_freq[1]+1, 
+                                                            (len(env_ids), 1), 
+                                                            dtype=torch.int32, 
+                                                            device=self.device, 
+                                                            requires_grad=False)
+            self.curr_straight_freq[env_ids, :] = torch.randint(self.cfg.env.agent_straight_freq[0], 
+                                                                self.cfg.env.agent_straight_freq[0]+1, 
+                                                                (len(env_ids), 1), 
+                                                                dtype=torch.int32, 
+                                                                device=self.device, 
+                                                                requires_grad=False)
 
         else:
             print("[reset_idx()] ERROR: unsupported agent dynamics type.")
@@ -1240,7 +1264,7 @@ class DecHighLevelGame():
         # send timeout info to the algorithm
         if self.cfg.env.send_timeouts:
             self.extras["time_outs"] = self.time_out_buf
-
+        # send BC actions to the algorithm
         if self.cfg.env.send_BC_actions:
             self.extras["bc_actions"] = self.bc_actions_robot
 
@@ -1622,10 +1646,11 @@ class DecHighLevelGame():
         self.rel_state_hist = torch.cat((rel_state.unsqueeze(1),
                                         self.rel_state_hist[:, 0:self.num_hist_steps-1, :]), 
                                         dim=1)
-        #   robot cmd hist is of shape [num_envs x num_hist_steps x num_agent_states]
+        #   robot cmd hist is of shape [num_envs x num_hist_steps x num_robot_actions]
         self.robot_commands_hist = torch.cat((self.robot_commands.unsqueeze(1),
                                         self.robot_commands_hist[:, 0:self.num_hist_steps-1, :]), dim=1)
-        #   For debug visualization: update agent state history
+        #   For debug visualization: update agent state history 
+        #   TODO: for now only using (x,y,z) components
         self.agent_state_hist = torch.cat((self.agent_pos[:, :3].unsqueeze(1),
                                         self.agent_state_hist[:, 0:self.num_hist_steps-1, :]),
                                         dim=1)

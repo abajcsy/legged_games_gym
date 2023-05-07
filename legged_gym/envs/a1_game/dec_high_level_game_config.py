@@ -36,10 +36,19 @@ class DecHighLevelGameCfg( BaseConfig ):
 
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
-        send_BC_actions = True      # send optimal robot actions for the BC loss in the algorithm
+        send_BC_actions = True      # send optimal robot actions for the BC loss in the algorithm; TODO: need to clean up this var
         episode_length_s = 20       # episode length in seconds
         capture_dist = 0.8          # if the two agents are closer than this dist, they are captured
-        agent_dyn_type = "dubins"   # sets the agent's dynamics type: "dubins" or "integrator"
+
+        # simulated agent info
+        agent_dyn_type = "dubins"   # options for agent's dynamics: "dubins" (u = linvel, angvel) or "integrator" (u = xvel, yvel)
+        agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
+        agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
+        # for WEAVING agent policy only
+        agent_turn_freq = [100,100] #[50, 100]                   # sample how long to turn (tsteps) from [min, max]
+        agent_straight_freq = [100,100] #[100, 201]              # sample how long to keep straight (tsteps) from [min, max]
+        randomize_init_turn_dir = False                           # if True, then initial turn going left or right is randomized
+
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
@@ -96,10 +105,10 @@ class DecHighLevelGameCfg( BaseConfig ):
     class commands: # note: commands and actions are the same for the high-level policy
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
-        command_clipping = False        # if true: clip robot + agent commands to the ranges below
+        command_clipping = True        # if true: clip robot + agent commands to the ranges below
         class ranges:
-            lin_vel_x = [0, 3.5] #[-1.0, 1.0]     # min max [m/s]
-            lin_vel_y = [0, 0] #[-1.0, 1.0]     # min max [m/s]
+            lin_vel_x = [-3.5, 3.5] #[-1.0, 1.0]     # min max [m/s]
+            lin_vel_y = [-1.0, 1.0]     # min max [m/s]
             ang_vel_yaw = [-2, 2] #[-3.14, 3.14]       # min max [rad/s]
             heading = [-3.14, 3.14]
             agent_lin_vel_x = [-1.8, 1.8] # min max [m/s]

@@ -77,6 +77,8 @@ class LowLevelGame(BaseTask):
         self.aggregate_mode = 1
 
         self.pred_agent_states = None
+        self.agent_ang = self.cfg.env.agent_ang
+        self.agent_rad = self.cfg.env.agent_rad
 
         self.terrain = None
 
@@ -789,12 +791,8 @@ class LowLevelGame(BaseTask):
         agent_start_pose.p = gymapi.Vec3(*agent_init[:3])
 
         # the agent is initialized at a random (xyz) offset from the robot
-        min_ang = -np.pi
-        max_ang = np.pi
-        min_rad = 2.0
-        max_rad = 6.0
-        self.rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_ang, max_ang)
-        rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(min_rad, max_rad)
+        self.rand_angle = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(self.agent_ang[0], self.agent_ang[1])
+        rand_radius = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False).uniform_(self.agent_rad[0], self.agent_rad[1])
         self.agent_offset_xyz = torch.cat((rand_radius * torch.cos(self.rand_angle),
                                            rand_radius * torch.sin(self.rand_angle),
                                            torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)), dim=-1)
