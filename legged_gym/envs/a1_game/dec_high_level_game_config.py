@@ -39,7 +39,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         send_BC_actions = True      # send optimal robot actions for the BC loss in the algorithm
         episode_length_s = 20       # episode length in seconds
         capture_dist = 0.8          # if the two agents are closer than this dist, they are captured
-        agent_dyn_type = "integrator"   # sets the agent's dynamics type: "dubins" or "integrator"
+        agent_dyn_type = "dubins"   # sets the agent's dynamics type: "dubins" or "integrator"
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"

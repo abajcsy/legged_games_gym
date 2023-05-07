@@ -374,14 +374,13 @@ class DecHighLevelGame():
         self.data_save_tstep = 0
         self.data_save_interval = 50
 
-        # state for agent policy simulation -- WEAVING AGENT
-        self.weaving_tstep = 0
-        self.weaving_ctrl_idx = 0
+        # state for agent policy simulation -- DUBINS WEAVING AGENT
+        self.curr_turn_freq = torch.ones(self.num_envs, 1, device=self.device, dtype=torch.int32)
+        self.curr_straight_freq = torch.ones(self.num_envs, 1, device=self.device, dtype=torch.int32)
         self.last_turn_tstep = torch.ones(self.num_envs, 1, device=self.device, dtype=torch.int32)
         self.last_straight_tstep = torch.ones(self.num_envs, 1, device=self.device, dtype=torch.int32)
         self.turn_or_straight_idx = torch.zeros(self.num_envs, 1, device=self.device, dtype=torch.int32)   # 0 == turn, 1 == straight
         self.turn_direction_idx = torch.zeros(self.num_envs, 1, device=self.device, dtype=torch.int32)    # 0 == turn left, 1 == turn right
-        self.first_turn = torch.ones(self.num_envs, 1, device=self.device, dtype=torch.bool)
 
         # state for agent policy simulation -- BROWNIAN MOTION AGENT
         self.prev_agent_command = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
@@ -393,11 +392,8 @@ class DecHighLevelGame():
 
         # state for agent policy simulation -- INTEGRATOR FIXED RANDOM VEL AGENT
         self.agent_command_scale = 1.2
-        # rand_vel_cmds = self.agent_command_scale * torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
-        # rand_sign = torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
-        # rand_sign[rand_sign > 0.5] = 1
-        # rand_sign[rand_sign < 0.5] = -1
-        # self.curr_agent_command = rand_sign * rand_vel_cmds
+
+        # current agent command 
         self.curr_agent_command = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
 
 
@@ -481,18 +477,17 @@ class DecHighLevelGame():
                 #command_agent = self._straight_line_command_agent()
                 command_agent = self._random_straight_line_command_agent()
             elif self.agent_dyn_type == "dubins":
-                command_agent = self._brownian_motion_command_agent()
-                # output = self._weaving_command_agent(self.turn_or_straight_idx.clone(),
-                #                                      self.first_turn.clone(),
-                #                                      self.last_turn_tstep.clone(),
-                #                                      self.last_straight_tstep.clone(),
-                #                                      self.turn_direction_idx.clone())
-                # command_agent = output[0]
-                # self.turn_or_straight_idx = output[1]
-                # self.first_turn = output[2]
-                # self.last_turn_tstep = output[3]
-                # self.last_straight_tstep = output[4]
-                # self.turn_direction_idx = output[5]
+                # command_agent = self._brownian_motion_command_agent()
+                output = self._weaving_command_agent(self.turn_or_straight_idx.clone(),
+                                                     self.last_turn_tstep.clone(),
+                                                     self.last_straight_tstep.clone(),
+                                                     self.turn_direction_idx.clone())
+                command_agent = output[0]
+                self.turn_or_straight_idx = output[1]
+                self.last_turn_tstep = output[2]
+                self.last_straight_tstep = output[3]
+                self.turn_direction_idx = output[4]
+                self.curr_agent_command = command_agent
 
             # set the high level command in the low-level environment 
             self.ll_env.commands = ll_env_command_robot
@@ -532,7 +527,6 @@ class DecHighLevelGame():
         p_cmd_robot[:, -1] = torch.clip(rel_yaw_local, min=-3.14, max=3.14) #torch.clip(rel_yaw_local, min=-1, max=1)
 
         return p_cmd_robot
-
 
     def _straight_line_command_augmented_robot(self, command_robot_1d):
         rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
@@ -633,18 +627,12 @@ class DecHighLevelGame():
 
     def _weaving_command_agent(self,
                                 turn_or_straight_idx,
-                                first_turn,
                                 last_turn_tstep,
                                 last_straight_tstep,
                                 turn_direction_idx):
         """Agent executes hard-coded snake-like pattern of (v_lin, v_ang)."""
         # TODO: This assumes agent is prey
         command_agent = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
-
-        # for ang_vel [-1,1]
-        straight_switch_freq = 100
-        turn_switch_freq = 150
-        first_turn_switch_freq = 75
 
         # find environments where agent is visible
         #leq = torch.le(torch.abs(rel_yaw_local), half_fov)
@@ -669,12 +657,12 @@ class DecHighLevelGame():
         command_agent[straight_mode_ids, 1] = 0
 
         # if time to switch from turn --> straight mode
-        switch_from_turn_ids = torch.any(last_turn_tstep == turn_switch_freq, dim=1).nonzero(as_tuple=False).flatten() # switch to straight
-        keep_turning_ids = torch.any(last_turn_tstep != turn_switch_freq, dim=1).nonzero(as_tuple=False).flatten()
+        switch_from_turn_ids = torch.any(last_turn_tstep == self.curr_turn_freq, dim=1).nonzero(as_tuple=False).flatten() # switch to straight
+        keep_turning_ids = torch.any(last_turn_tstep != self.curr_turn_freq, dim=1).nonzero(as_tuple=False).flatten()
 
         # if time to switch from straight --> turn mode
-        switch_from_straight_ids = torch.any(last_straight_tstep == straight_switch_freq, dim=1).nonzero(as_tuple=False).flatten() # keep going in turn mode
-        keep_straight_ids = torch.any(last_straight_tstep != straight_switch_freq, dim=1).nonzero(as_tuple=False).flatten() # keep going in straight mode
+        switch_from_straight_ids = torch.any(last_straight_tstep == self.curr_straight_freq, dim=1).nonzero(as_tuple=False).flatten() # keep going in turn mode
+        keep_straight_ids = torch.any(last_straight_tstep != self.curr_straight_freq, dim=1).nonzero(as_tuple=False).flatten() # keep going in straight mode
 
         # if TURNING and SWITCHING FROM TURNING
         turn_mode_and_switch_ids = self._intersect_vecs(turn_mode_ids, switch_from_turn_ids)
@@ -705,31 +693,7 @@ class DecHighLevelGame():
         # if not ready to switch out of straight mode
         last_straight_tstep[straight_mode_and_NOT_switch_ids, 0] += 1
 
-        return command_agent, turn_or_straight_idx, first_turn, last_turn_tstep, last_straight_tstep, turn_direction_idx
-
-    # def _turning_command_agent(self):
-    #     """"""
-    #     # TODO: This assumes agent is prey
-    #     command_agent = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
-    #     switch_idx = 100
-    #     if self.weaving_tstep % switch_idx == 0:
-    #         self.weaving_ctrl_idx += 1
-    #         self.weaving_ctrl_idx %= 3
-    #         self.weaving_tstep = 0
-    #
-    #     if self.weaving_ctrl_idx == 0:
-    #         command_agent[:, 0] = 2*self.command_ranges["agent_lin_vel_x"][1]
-    #         command_agent[:, 1] = self.command_ranges["agent_ang_vel_yaw"][0]
-    #     elif self.weaving_ctrl_idx == 1:
-    #         command_agent[:, 0] = 2*self.command_ranges["agent_lin_vel_x"][1]
-    #         command_agent[:, 1] = self.command_ranges["agent_ang_vel_yaw"][1]
-    #     elif self.weaving_ctrl_idx == 2:
-    #         command_agent[:, 0] = 2 * self.command_ranges["agent_lin_vel_x"][1]
-    #         command_agent[:, 1] = 0
-    #
-    #     self.weaving_tstep += 1
-    #
-    #     return command_agent
+        return command_agent, turn_or_straight_idx, last_turn_tstep, last_straight_tstep, turn_direction_idx
 
     def _intersect_vecs(self, v1, v2):
 
@@ -862,7 +826,6 @@ class DecHighLevelGame():
 
 
         turn_or_straight_idx = self.turn_or_straight_idx.clone()
-        first_turn = self.first_turn.clone()
         last_turn_tstep = self.last_turn_tstep.clone()
         last_straight_tstep = self.last_straight_tstep.clone()
         turn_direction_idx = self.turn_direction_idx.clone()
@@ -872,25 +835,19 @@ class DecHighLevelGame():
                 # NOTE: this weaving command is based on the LOW LEVEL environment dt.
                 # it has to be called repeatedly to simulate the agent at the HIGH LEVEL environment's dt
                 output = self._weaving_command_agent(turn_or_straight_idx,
-                                         first_turn,
                                          last_turn_tstep,
                                          last_straight_tstep,
                                          turn_direction_idx)
                 command_agent = output[0]
                 turn_or_straight_idx = output[1]
-                first_turn = output[2]
-                last_turn_tstep = output[3]
-                last_straight_tstep = output[4]
-                turn_direction_idx = output[5]
+                last_turn_tstep = output[2]
+                last_straight_tstep = output[3]
+                turn_direction_idx = output[4]
 
             pred_commands_agent_frame[:, tstep, :] = command_agent.clone()
 
             if return_state:
-                curr_state[:, 0] += self.hl_dt * pred_commands_agent_frame[:, tstep, 0] * torch.cos(curr_state[:, 3])
-                curr_state[:, 1] += self.hl_dt * pred_commands_agent_frame[:, tstep, 0] * torch.sin(curr_state[:, 3])
-                curr_state[:, 3] += self.hl_dt * pred_commands_agent_frame[:, tstep, 1]
-                curr_state[:, 3] = wrap_to_pi(curr_state[:, 3])
-
+                curr_state = self.agent_dubins_car_dynamics(curr_state, pred_commands_agent_frame[:, tstep, :])
                 pred_agent_state_agent_frame[tstep, :, :] = curr_state
 
             if change_coord_frame:
@@ -1035,6 +992,23 @@ class DecHighLevelGame():
         next_state[:, 0] = agent_state[:, 0] + self.hl_dt * command_agent[:, 0]
         next_state[:, 1] = agent_state[:, 1] + self.hl_dt * command_agent[:, 1]
         next_state[:, 2] = agent_state[:, 2] 
+
+        return next_state
+
+    def agent_dubins_car_dynamics(self, agent_state, command_agent):
+        """
+        Simulates the agent physics according to the HIGH LEVEL timestep:
+            x' = x + hl_dt * u1 * cos(yaw)
+            y' = y + hl_dt * u1 * cos(yaw)
+            z' = z
+            yaw' = yaw + hl_dt * u2
+        """
+        next_state = torch.zeros(agent_state.shape[0], agent_state.shape[1], device=self.device, requires_grad=False)
+        next_state[:, 0] = agent_state[:, 0] + self.hl_dt * command_agent[:, 0] * torch.cos(agent_state[:, 3])
+        next_state[:, 1] = agent_state[:, 1] + self.hl_dt * command_agent[:, 0] * torch.sin(agent_state[:, 3])
+        next_state[:, 2] = agent_state[:, 2] 
+        next_state[:, 3] = agent_state[:, 3] + self.hl_dt * command_agent[:, 1]
+        next_state[:, 3] = wrap_to_pi(next_state[:, 3])
 
         return next_state
 
@@ -1196,13 +1170,6 @@ class DecHighLevelGame():
         self.detected_buf_agent[env_ids, :] = 0
         self.detected_buf_robot[env_ids, :] = 0
 
-        # reset simulated agent behavior variables
-        self.last_turn_tstep[env_ids, 0] = 1
-        self.last_straight_tstep[env_ids, 0] = 1
-        self.turn_or_straight_idx[env_ids, 0] = 0   # 0 == turn, 1 == straight
-        self.turn_direction_idx[env_ids, 0] = 0    # 0 == turn left, 1 == turn right
-        self.first_turn[env_ids, 0] = 1
-
         # simulated agent time-based state
         self.agent_cmd_curriculum_idx[env_ids, 0] = 0
         self.prev_agent_command[env_ids, :] = 0
@@ -1212,30 +1179,49 @@ class DecHighLevelGame():
         self.robot_commands[env_ids, :] = 0.
         self.agent_state_hist[env_ids, :, :] = 0.
 
-        # =========== Moving Agent Policy Setup ========= #
-        # simulated agent information
-        rand_vel_cmds = self.agent_command_scale * torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
-        rand_sign = torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
-        rand_sign[rand_sign > 0.5] = 1
-        rand_sign[rand_sign < 0.5] = -1
-        self.curr_agent_command[env_ids, :] = rand_sign[env_ids, :] * rand_vel_cmds[env_ids, :]
+        if self.agent_dyn_type == "integrator":
 
-        # check the angle between the agent's velocity and the relative agent-robot position is making the agent go *towards* the robot
-        rel_xy_global = self.agent_pos[env_ids, :2] - self.robot_states[env_ids, :2]
-        agent_base_quat = self.ll_env.root_states[self.ll_env.agent_indices[env_ids], 3:7]
-        padded_agent_cmd_local = torch.cat((self.curr_agent_command[env_ids, :], torch.zeros(len(env_ids), 1, device=self.device, requires_grad=False)), dim=-1)
-        agent_cmd_global = quat_rotate_inverse(agent_base_quat, padded_agent_cmd_local)[:, :2]
+            # =========== INTEGRATOR -- Moving Agent Policy Setup ========= #
+            # simulated agent information
+            rand_vel_cmds = self.agent_command_scale * torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
+            rand_sign = torch.rand(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
+            rand_sign[rand_sign > 0.5] = 1
+            rand_sign[rand_sign < 0.5] = -1
+            self.curr_agent_command[env_ids, :] = rand_sign[env_ids, :] * rand_vel_cmds[env_ids, :]
 
-        dot = torch.bmm(rel_xy_global.view(len(env_ids), 1, self.num_actions_agent), agent_cmd_global.view(len(env_ids), self.num_actions_agent, 1)).squeeze(-1)
-        inner = torch.div(dot, (torch.norm(rel_xy_global, dim=-1) * torch.norm(agent_cmd_global, dim=-1)).view(len(env_ids), 1))
-        ang = torch.acos(inner)
+            # check the angle between the agent's velocity and the relative agent-robot position is making the agent go *towards* the robot
+            rel_xy_global = self.agent_pos[env_ids, :2] - self.robot_states[env_ids, :2]
+            agent_base_quat = self.ll_env.root_states[self.ll_env.agent_indices[env_ids], 3:7]
+            padded_agent_cmd_local = torch.cat((self.curr_agent_command[env_ids, :], torch.zeros(len(env_ids), 1, device=self.device, requires_grad=False)), dim=-1)
+            agent_cmd_global = quat_rotate_inverse(agent_base_quat, padded_agent_cmd_local)[:, :2]
 
-        # find the environments where the simulated agent is going *towards* the robot too much, and flip the sign of the commands
-        geq = torch.ge(torch.abs(ang), 2.8) # ~160 degrees
-        otw_bool = torch.any(geq, dim=1)
-        moving_towards_robot_ids = otw_bool.nonzero(as_tuple=False).flatten()
-        self.curr_agent_command[env_ids[moving_towards_robot_ids], :] *= -1.0
-        # =========== Moving Agent Policy Setup ========= #
+            dot = torch.bmm(rel_xy_global.view(len(env_ids), 1, self.num_actions_agent), agent_cmd_global.view(len(env_ids), self.num_actions_agent, 1)).squeeze(-1)
+            inner = torch.div(dot, (torch.norm(rel_xy_global, dim=-1) * torch.norm(agent_cmd_global, dim=-1)).view(len(env_ids), 1))
+            ang = torch.acos(inner)
+
+            # find the environments where the simulated agent is going *towards* the robot too much, and flip the sign of the commands
+            geq = torch.ge(torch.abs(ang), 2.8) # ~160 degrees
+            otw_bool = torch.any(geq, dim=1)
+            moving_towards_robot_ids = otw_bool.nonzero(as_tuple=False).flatten()
+            self.curr_agent_command[env_ids[moving_towards_robot_ids], :] *= -1.0
+
+        elif self.agent_dyn_type == "dubins":
+
+            # =========== DUBINS CAR -- Moving Agent Policy Setup ========= #
+            # reset simulated agent behavior variables
+            self.last_turn_tstep[env_ids, 0] = 1
+            self.last_straight_tstep[env_ids, 0] = 1
+            self.turn_or_straight_idx[env_ids, 0] = 0   # 0 == turn, 1 == straight
+            self.turn_direction_idx[env_ids, 0] = 0    # 0 == turn left, 1 == turn right
+            self.curr_agent_command[env_ids, :] = 0.
+
+            # choose a random turning frequency and straight frequency
+            self.curr_turn_freq[env_ids, :] = torch.randint(50, 100, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False)
+            self.curr_straight_freq[env_ids, :] = torch.randint(100, 200, (len(env_ids), 1), dtype=torch.int32, device=self.device, requires_grad=False)
+
+        else:
+            print("[reset_idx()] ERROR: unsupported agent dynamics type.")
+            return -1
 
          # reset last robot position to the reset pos
         self.last_robot_pos[env_ids, :] = self.ll_env.env_origins[env_ids, :3]
@@ -1602,10 +1588,17 @@ class DecHighLevelGame():
             rel_state[:, :-1] *= pos_scale
 
             # next agent state in global coord frame
-            next_agent_pos_global = self.agent_single_integrator_dynamics(self.agent_pos, self.curr_agent_command)
+            if self.agent_dyn_type == "integrator":
+                next_agent_pos_global = self.agent_single_integrator_dynamics(self.agent_pos, self.curr_agent_command)
+            elif self.agent_dyn_type == "dubins":
+                next_agent_pos_global = self.agent_dubins_car_dynamics(torch.cat((self.agent_pos, self.agent_heading.unsqueeze(-1)), dim=-1), 
+                                                                        self.curr_agent_command)
+            else:
+                print("[RMA_history_robot] ERROR: unsupported type of agent dynamics.")
+                return -1 
 
             # compute the next relative position assume the robot stays where it is
-            next_rel_pos_global = next_agent_pos_global - self.robot_states[:, :3]
+            next_rel_pos_global = next_agent_pos_global[:, :3] - self.robot_states[:, :3]
 
             # get the next relative position and angle in robot's coordinate frame
             next_rel_pos_local = self.global_to_robot_frame(next_rel_pos_global)
