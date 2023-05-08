@@ -20,12 +20,15 @@ class DecHighLevelGameCfg( BaseConfig ):
 
         # num_observations_robot = 1
         # num_observations_robot = 1+16 # theta
-        num_observations_robot = 4      # GT observations: (x_rel, theta)
-        # num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
+        # num_observations_robot = 4      # GT observations: (x_rel, theta)
+        # num_observations_robot = 20     # KF observations: (xhat_rel, Phat)
         # num_observations_robot = num_robot_states*(num_hist_steps+1) + num_actions_robot*num_hist_steps # HISTORY: pi(x^t-N:t, uR^t-N:t-1)
         # num_observations_robot = num_robot_states * (num_pred_steps + 1)  # PREDICTIONS: pi(x^t, x^t+1:t+N)
         # num_observations_robot = num_robot_states*2       # CURR AGENT VEL PRIVILEDGE INFO: pi(x^t, vxA^t, vyA^t, vTh^t)
+        num_observations_robot = num_robot_states + 1 # GT state + time observations: (x_rel, theta, elapsed_t)
+
         num_observations_agent = 4          # AGENT (CUBE)
+
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
 
@@ -45,9 +48,9 @@ class DecHighLevelGameCfg( BaseConfig ):
         agent_ang = [-3.14/6, 3.14/6] #[-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
         agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
         # for WEAVING agent policy only
-        agent_turn_freq = [100, 100] #[50, 100]                   # sample how long to turn (tsteps) from [min, max]
-        agent_straight_freq = [100, 100] #[100, 201]              # sample how long to keep straight (tsteps) from [min, max]
-        randomize_init_turn_dir = False                           # if True, then initial turn going left or right is randomized
+        agent_turn_freq = [100, 100] # [50, 100] #[100,100]                   # sample how long to turn (tsteps) from [min, max]
+        agent_straight_freq = [100, 100] # [100, 201]              # sample how long to keep straight (tsteps) from [min, max]
+        randomize_init_turn_dir = False # True                           # if True, then initial turn going left or right is randomized
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
@@ -64,7 +67,11 @@ class DecHighLevelGameCfg( BaseConfig ):
         obstacle_curriculum = False
         obstacle_heights = [0., 0.1, 0.5, 1, 5] # [m]
 
-        curriculum_target_iters = [200, 400, 600, 800, 1000] #[400, 800, 1200, 1600, 1800]
+        prey_policy_curriculum = False
+        prey_policy = ['static', 'active']
+
+        curriculum_target_iters = [200, 400]
+        # curriculum_target_iters = [200, 400, 600, 800, 1000] #[400, 800, 1200, 1600, 1800]
 
     class terrain:
         mesh_type = 'plane'
@@ -160,7 +167,8 @@ class DecHighLevelGameCfg( BaseConfig ):
             robot_foveation = 0.0
             robot_ang_vel = -0.0
             path_progress = 0.0
-            termination = 0.0
+            time_elapsed = -0.1
+            termination = 100.0
 
     class rewards_agent: # CUBE!
         only_positive_rewards = False

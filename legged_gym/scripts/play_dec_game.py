@@ -100,7 +100,9 @@ def play_dec_game(args):
     # train_cfg.runner.load_run = 'May07_00-00-04_' # pi(x, dx) with 5.0 * foveation + pursuit + 100 * terminal
 
     #train_cfg.runner.load_run = 'May07_19-19-40_'
-    train_cfg.runner.load_run = 'May07_23-45-54_'
+
+    # train_cfg.runner.load_run = 'May08_17-38-51_'
+    train_cfg.runner.load_run = 'May08_10-28-06_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint

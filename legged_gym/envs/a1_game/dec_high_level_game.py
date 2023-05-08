@@ -206,7 +206,12 @@ class DecHighLevelGame():
         self.obstacle_curr_idx = 0
         if self.cfg.robot_sensing.obstacle_curriculum:
             max_obstacle_height = self.cfg.robot_sensing.obstacle_heights[self.obstacle_curr_idx]
+            raise NotImplementedError()
             # TODO: Complete this!
+
+        self.prey_policy_type_idx = 0
+        if self.cfg.robot_sensing.prey_policy_curriculum:
+            self.prey_policy_type = self.cfg.robot_sensing.prey_policy[self.prey_policy_type_idx]
 
         # this keeps track of which training iteration we are in!
         self.training_iter_num = 0
@@ -400,7 +405,6 @@ class DecHighLevelGame():
         # current agent command 
         self.curr_agent_command = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
 
-
         # Reward debugging saving info
         self.save_rew_data = False
         self.rew_debug_tstep = 0
@@ -493,6 +497,15 @@ class DecHighLevelGame():
                 self.last_straight_tstep = output[3]
                 self.turn_direction_idx = output[4]
                 self.curr_agent_command = command_agent
+
+            if self.cfg.robot_sensing.prey_policy_curriculum:
+                if self.prey_policy_type == "static":
+                    # if the prey agent's policy type is static, then zero out the controls.
+                    command_agent *= 0
+                    self.curr_agent_command *= 0
+                # elif self.prey_policy_type == "active":
+                #     # if active, then just continue.
+                #     continue
 
             # set the high level command in the low-level environment 
             self.ll_env.commands = ll_env_command_robot
@@ -1355,7 +1368,8 @@ class DecHighLevelGame():
         sense_obstacles = self.cfg.terrain.fov_measure_heights
 
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
-        self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
+        # self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
+        self.compute_observations_pos_angle_time_robot()    # OBS: (x_rel, yaw_rel, elapsed_t)
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
@@ -1364,7 +1378,8 @@ class DecHighLevelGame():
         #                                    limited_fov=True,
         #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
-        #self.compute_observations_RMA_history_robot(use_pos_and_vel=True)
+        #self.compute_observations_RMA_history_robot(use_pos_and_vel=True,
+        #                                            use_elapsed_time=True) # OBS: (x, dx, elapsed_t)
         # self.compute_observations_RMA_predictions_robot()
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
@@ -1387,6 +1402,20 @@ class DecHighLevelGame():
         pos_scale = 0.1
         self.obs_buf_robot = torch.cat((rel_pos_local * pos_scale,
                                         rel_yaw_local), dim=-1)
+
+    def compute_observations_pos_angle_time_robot(self):
+        """ Computes relative position and angle w.r.t robot's base frame.
+        """
+        # from robot's POV, get the relative position to the agent
+        rel_pos_global = self.agent_pos[:, :3] - self.robot_states[:, :3]
+        rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+        rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
+
+        pos_scale = 0.1
+        ep_step_scale = 1 / self.max_episode_length
+        self.obs_buf_robot = torch.cat((rel_pos_local * pos_scale,
+                                        rel_yaw_local,
+                                        self.curr_episode_step.unsqueeze(-1) * ep_step_scale), dim=-1)
 
     def compute_observations_full_obs_robot(self):
         """ Computes observations of the robot with partial observability.
@@ -1584,10 +1613,17 @@ class DecHighLevelGame():
         if self.debug_viz:
             self.ll_env.pred_agent_states = pred_agent_state_agent_frame
 
-    def compute_observations_RMA_history_robot(self, use_pos_and_vel=False):
+    def compute_observations_RMA_history_robot(self,
+                                               use_pos_and_vel=False,
+                                               use_elapsed_time=False):
         """This function can handle observations like:
-            pi_R(x^t, x^t-1:t-N:, uR^t-1:t-N)     where the x is true relative state in robot base frame
-            pi_R(x^t, dx^t)     where the x is true relative state, and dx is the velocity of the relative state in robot's frame
+            pi_R(x^t, x^t-1:t-N, uR^t-1:t-N, elapsed_t)     where the x is true relative state in robot frame
+                                                                   x^t-1:t-N is future relative state assuming robot is static
+                                                                   uR^t-1:t-N are past robot actions
+                                                                   elapsed_t (optional) is the elapsed time
+            pi_R(x^t, dx^t, elapsed_t)     where the x is true relative state, and
+                                                     dx is the velocity of the relative state in robot's frame
+                                                     elapsed_t (optional) is the elapsed time
         """
         rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
         rel_pos_local = self.global_to_robot_frame(rel_pos_global) # quat_rotate_inverse -- point is rotated with respect to the coordinate system (?)
@@ -1635,6 +1671,13 @@ class DecHighLevelGame():
             self.obs_buf_robot = torch.cat((rel_state,
                                             rel_lin_vel_robot_frame,
                                             rel_yaw_vel_robot_frame),
+                                            dim=-1)
+
+        if use_elapsed_time:
+            # Append the elapsed time to the observation
+            elapsed_time_scale = 1. / self.max_episode_length
+            self.obs_buf_robot = torch.cat((self.obs_buf_robot,
+                                            self.curr_episode_step.unsqueeze(-1) * elapsed_time_scale),
                                             dim=-1)
 
         if self.debug_viz:
@@ -2052,6 +2095,21 @@ class DecHighLevelGame():
             print("                   training iter num: ", self.training_iter_num)
             print("                   prey ang is: ", max_ang)
 
+    def _update_prey_policy_curriculum(self, env_ids):
+        """ Implements the curriculum for the prey policy.
+
+        Args:
+            env_ids (List[int]): ids of environments being reset
+        """
+        if self.training_iter_num == self.curriculum_target_iters[self.prey_policy_type_idx]:
+            self.prey_policy_type_idx += 1
+            self.prey_policy_type_idx = min(self.prey_policy_type_idx, len(self.cfg.robot_sensing.prey_policy) - 1)
+            self.prey_policy_type = self.cfg.robot_sensing.prey_policy[self.prey_policy_type_idx]
+
+            print("[DecHighLevelGame] in _update_prey_policy_curriculum():")
+            print("                   training iter num: ", self.training_iter_num)
+            print("                   prey policy type is: ", self.prey_policy_type)
+
     # def _update_obstacle_curriculum(self, env_ids):
     #     """ Implements the curriculum for the obstacle heights
     #
@@ -2137,6 +2195,11 @@ class DecHighLevelGame():
     def _reward_pursuit(self):
         """Reward for pursuing"""
         rew = torch.square(torch.norm(self.agent_pos[:, :2] - self.robot_states[:, :2], p=2, dim=-1))
+        return rew
+
+    def _reward_time_elapsed(self):
+        """Reward for episode length"""
+        rew = self.curr_episode_step
         return rew
 
     def _reward_exp_pursuit(self):
