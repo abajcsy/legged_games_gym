@@ -8,7 +8,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         #   + 187 for non-flat terrain observations
         #   + 3 for relative xyz-state to point-agent
         debug_viz = False
-        robot_hl_dt = 0.02   # 1 / robot_hl_dt is the Hz
+        robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
 
         num_envs = 3000 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
@@ -23,17 +23,18 @@ class DecHighLevelGameCfg( BaseConfig ):
         # num_observations_robot = 4      # GT observations: (x_rel, theta)
         # num_observations_robot = 20     # KF observations: (xhat_rel, Phat)
         # num_observations_robot = num_robot_states*(num_hist_steps+1) + num_actions_robot*num_hist_steps # HISTORY: pi(x^t-N:t, uR^t-N:t-1)
-        # num_observations_robot = num_robot_states * (num_pred_steps + 1)  # PREDICTIONS: pi(x^t, x^t+1:t+N)
-        # num_observations_robot = num_robot_states*2       # CURR AGENT VEL PRIVILEDGE INFO: pi(x^t, vxA^t, vyA^t, vTh^t)
-        num_observations_robot = num_robot_states + 1 # GT state + time observations: (x_rel, theta, elapsed_t)
+        num_observations_robot = num_robot_states * (num_pred_steps + 1) + 1  # PREDICTIONS: pi(x^t, x^t+1:t+N, elapsed_t)
+        # num_observations_robot = num_robot_states*2       # 1-step PREDICTIONS: pi(x, dx)
+        # num_observations_robot = num_robot_states + 1     # GT state + time observations: pi(x, elapsed_t)
+        # num_observations_robot = num_robot_states*2 + 1     # 1-step PREDICTIONS + time observations: pi(x, dx, elapsed_t)
 
         num_observations_agent = 4          # AGENT (CUBE)
 
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
 
-        num_obs_encoded_robot = None #num_observations_robot - num_robot_states # how many of the observations are encoded?
-        num_obs_encoded_agent = None #4
+        num_obs_encoded_robot = num_observations_robot - num_robot_states # how many of the observations are encoded?
+        num_obs_encoded_agent = 4
         embedding_sz_robot = 8
         embedding_sz_agent = 2
 
@@ -45,12 +46,12 @@ class DecHighLevelGameCfg( BaseConfig ):
 
         # simulated agent info
         agent_dyn_type = "dubins"   # options for agent's dynamics: "dubins" (u = linvel, angvel) or "integrator" (u = xvel, yvel)
-        agent_ang = [-3.14/6, 3.14/6] #[-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
+        agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
         agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
         # for WEAVING agent policy only
         agent_turn_freq = [100, 100] # [50, 100] #[100,100]                   # sample how long to turn (tsteps) from [min, max]
         agent_straight_freq = [100, 100] # [100, 201]              # sample how long to keep straight (tsteps) from [min, max]
-        randomize_init_turn_dir = False # True                           # if True, then initial turn going left or right is randomized
+        randomize_init_turn_dir = True #False # True                           # if True, then initial turn going left or right is randomized
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
@@ -254,11 +255,11 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        policy_class_name = 'ActorCritic'
+        # policy_class_name = 'ActorCritic'
         # policy_class_name = 'ActorCriticWithProxy'
-        # policy_class_name = 'ActorCriticGames'
+        policy_class_name = 'ActorCriticGames'
         algorithm_class_name = 'PPO'
-        num_steps_per_env = 24          # per iteration
+        num_steps_per_env = 10 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 

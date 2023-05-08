@@ -76,7 +76,9 @@ class LowLevelGame(BaseTask):
         self.init_done = False
         self.aggregate_mode = 1
 
-        self.pred_agent_states = None
+        self.agent_state_hist = None
+        self.agent_state_preds = None
+        self.agent_state_future = None
         self.agent_ang = self.cfg.env.agent_ang
         self.agent_rad = self.cfg.env.agent_rad
 
@@ -965,8 +967,12 @@ class LowLevelGame(BaseTask):
                 #just draw the robot's FOV
                 #self._draw_fov_rays(env_id=i)
                 #self._draw_world_frame(env_id=i)
-                if self.pred_agent_states is not None:
-                    self._draw_predictions()
+                if self.agent_state_hist is not None:
+                    self._draw_agent_states(self.agent_state_hist, color_name='r', sphere_r=0.02)
+                if self.agent_state_future is not None:
+                    self._draw_agent_states(self.agent_state_future, color_name='y', sphere_r=0.02)
+                if self.agent_state_preds is not None:
+                    self._draw_agent_states(self.agent_state_preds, color_name='b', sphere_r=0.03)
                 self._draw_robot_frame(env_id=i)
                 self._draw_rel_pos(env_id=i)
             return
@@ -1005,15 +1011,25 @@ class LowLevelGame(BaseTask):
             self._draw_world_frame(env_id=i)
             #self._draw_robot_frame(env_id=i)
 
-    def _draw_predictions(self):
-        """Draws the predicted agent states w.r.t the agent's coordinate frame."""
-        sphere_geom_red = gymutil.WireframeSphereGeometry(0.02, 10, 10, None, color=(1, 0, 0))
-        num_tsteps = self.pred_agent_states.shape[1]
+    def _draw_agent_states(self, agent_states, color_name='r', sphere_r=0.02):
+        """Draws the agent states."""
+        if color_name == 'r':
+            color = (1, 0, 0)
+        elif color_name == 'b':
+            color = (0, 0, 1)
+        elif color_name == 'p':
+            color = (1, 0, 1)
+        elif color_name == 'y':
+            color = (1, 1, 0)
+        else:
+            color = (1, 1, 0)
+        sphere_geom = gymutil.WireframeSphereGeometry(sphere_r, 10, 10, None, color=color)
+        num_tsteps = agent_states.shape[1]
         for tstep in range(0, num_tsteps, 1):
             for i in range(self.num_envs):
-                agent_state = self.pred_agent_states[i, tstep, :]
+                agent_state = agent_states[i, tstep, :]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(agent_state[0], agent_state[1], 0.05), r=None)
-                gymutil.draw_lines(sphere_geom_red, self.gym, self.viewer, self.envs[i], sphere_pose)
+                gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
         return
 
     def _draw_rel_pos(self, env_id):
