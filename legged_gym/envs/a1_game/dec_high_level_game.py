@@ -157,14 +157,14 @@ class DecHighLevelGame():
                              checkpoint=ll_train_cfg.runner.checkpoint)
         self.ll_policy = ll_policy_runner.load_policy(path)
 
+        self.num_envs = self.cfg.env.num_envs
+        self.debug_viz = self.cfg.env.debug_viz
+        self.hl_dt = self.cfg.env.robot_hl_dt # high level Hz
+
         # parse the high-level config into appropriate dicts
         self._parse_cfg(self.cfg)
 
         self.gym = gymapi.acquire_gym()
-
-        self.num_envs = self.cfg.env.num_envs
-        self.debug_viz = self.cfg.env.debug_viz
-        self.hl_dt = self.cfg.env.robot_hl_dt # high level Hz
 
         # setup the capture distance between two agents
         self.capture_dist = self.cfg.env.capture_dist
@@ -334,7 +334,7 @@ class DecHighLevelGame():
         self.num_actions_kf_r = self.num_actions_robot 
         self.num_actions_kf_a = self.num_actions_agent
         self.dyn_sys_type = "linear"
-        self.filter_dt = self.ll_env.dt # we get measurements slower than sim: filter_dt = decimation * sim.dt
+        self.filter_dt = self.hl_dt # we get measurements slower than sim: filter_dt = decimation * sim.dt
         print("[DecHighLevelGame] Filter type: ", self.filter_type)
         if self.filter_type == "kf":
             self.kf = KalmanFilter(self.filter_dt,
@@ -474,6 +474,7 @@ class DecHighLevelGame():
         ll_freq = self.ll_env.dt
         num_ll_steps = int(hl_freq / ll_freq)
 
+        # start_loop_time = time()
         for tstep in range(num_ll_steps):
 
             # simulate the other agent
@@ -505,11 +506,14 @@ class DecHighLevelGame():
             # forward simulate the low-level actions
             self.ll_obs_buf_robot, _, _, _, _ = self.ll_env.step(ll_robot_actions.detach())
 
+
             # forward simulate the agent action too
             if self.agent_dyn_type == "integrator":
                 self.step_agent_single_integrator(command_agent)
             elif self.agent_dyn_type == "dubins":
                 self.step_agent_dubins_car(command_agent)
+        
+        # print("--- simulation loop: %s seconds ---" % (time() - start_loop_time))
 
         # take care of terminations, compute observations, rewards, and dones
         self.post_physics_step(command_robot, command_agent) # TODO: this is the *last* command agent!
@@ -638,8 +642,6 @@ class DecHighLevelGame():
         # TODO: This assumes agent is prey
         command_agent = torch.zeros(self.num_envs, self.num_actions_agent, device=self.device, requires_grad=False)
 
-        # find environments where agent is visible
-        #leq = torch.le(torch.abs(rel_yaw_local), half_fov)
         turn_mode = torch.any(turn_or_straight_idx == 0, dim=1)
 
         turn_mode_ids = turn_mode.nonzero(as_tuple=False).flatten()
@@ -700,7 +702,7 @@ class DecHighLevelGame():
         return command_agent, turn_or_straight_idx, last_turn_tstep, last_straight_tstep, turn_direction_idx
 
     def _intersect_vecs(self, v1, v2):
-
+        """Returns the intersection of the vectors v1 and v2."""
         combined1 = torch.cat((v1, v2))
         uniques1, counts1 = combined1.unique(return_counts=True)
         difference1 = uniques1[counts1 == 1]
@@ -1076,10 +1078,8 @@ class DecHighLevelGame():
         # print("agent_dist: ", torch.norm(self.robot_states[:, :3] - self.agent_pos, dim=-1))
         # print("rew_buf_agent: ", self.rew_buf_agent)
 
-        # NOTE: ll_env.step() already reset based on the low-level reset criteria
-        # self.reset_buf |= self.ll_env.reset_buf # combine the low-level dones and the high-level dones
+        # reset environments
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
-
         self.reset_idx(env_ids)
 
         # refresh the low-level policy's observation buf
@@ -1355,7 +1355,7 @@ class DecHighLevelGame():
         sense_obstacles = self.cfg.terrain.fov_measure_heights
 
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
-        #self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
+        self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
@@ -1364,7 +1364,7 @@ class DecHighLevelGame():
         #                                    limited_fov=True,
         #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
-        self.compute_observations_RMA_history_robot(use_pos_and_vel=True)
+        #self.compute_observations_RMA_history_robot(use_pos_and_vel=True)
         # self.compute_observations_RMA_predictions_robot()
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
@@ -2070,7 +2070,7 @@ class DecHighLevelGame():
             if scale == 0:
                 self.reward_scales_agent.pop(key)
             else:
-                self.reward_scales_agent[key] *= self.ll_env.dt
+                self.reward_scales_agent[key] *= self.hl_dt #self.ll_env.dt
         # prepare list of functions
         self.reward_functions_agent = []
         self.reward_names_agent = []
@@ -2098,7 +2098,7 @@ class DecHighLevelGame():
             if scale == 0:
                 self.reward_scales_robot.pop(key)
             else:
-                self.reward_scales_robot[key] *= self.ll_env.dt
+                self.reward_scales_robot[key] *= self.hl_dt #self.ll_env.dt
         # prepare list of functions
         self.reward_functions_robot = []
         self.reward_names_robot = []
@@ -2125,8 +2125,7 @@ class DecHighLevelGame():
         if self.cfg.terrain.mesh_type not in ['heightfield', 'trimesh']:
             self.cfg.terrain.curriculum = False
         self.max_episode_length_s = self.cfg.env.episode_length_s
-        self.max_episode_length = np.ceil(self.max_episode_length_s / self.ll_env.dt)
-
+        self.max_episode_length = np.ceil(self.max_episode_length_s / self.hl_dt) #self.ll_env.dt)
         # self.cfg.domain_rand.push_interval = np.ceil(self.cfg.domain_rand.push_interval_s / self.ll_env.dt)
 
     # ------------ reward functions----------------

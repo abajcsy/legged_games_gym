@@ -20,11 +20,11 @@ class DecHighLevelGameCfg( BaseConfig ):
 
         # num_observations_robot = 1
         # num_observations_robot = 1+16 # theta
-        #num_observations_robot = 4      # GT observations: (x_rel, theta)
+        num_observations_robot = 4      # GT observations: (x_rel, theta)
         # num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
         # num_observations_robot = num_robot_states*(num_hist_steps+1) + num_actions_robot*num_hist_steps # HISTORY: pi(x^t-N:t, uR^t-N:t-1)
         # num_observations_robot = num_robot_states * (num_pred_steps + 1)  # PREDICTIONS: pi(x^t, x^t+1:t+N)
-        num_observations_robot = num_robot_states*2       # CURR AGENT VEL PRIVILEDGE INFO: pi(x^t, vxA^t, vyA^t, vTh^t)
+        # num_observations_robot = num_robot_states*2       # CURR AGENT VEL PRIVILEDGE INFO: pi(x^t, vxA^t, vyA^t, vTh^t)
         num_observations_agent = 4          # AGENT (CUBE)
         num_privileged_obs_robot = None
         num_privileged_obs_agent = None
@@ -42,13 +42,12 @@ class DecHighLevelGameCfg( BaseConfig ):
 
         # simulated agent info
         agent_dyn_type = "dubins"   # options for agent's dynamics: "dubins" (u = linvel, angvel) or "integrator" (u = xvel, yvel)
-        agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
+        agent_ang = [-3.14/6, 3.14/6] #[-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
         agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
         # for WEAVING agent policy only
-        agent_turn_freq = [100,100] #[50, 100]                   # sample how long to turn (tsteps) from [min, max]
-        agent_straight_freq = [100,100] #[100, 201]              # sample how long to keep straight (tsteps) from [min, max]
+        agent_turn_freq = [100, 100] #[50, 100]                   # sample how long to turn (tsteps) from [min, max]
+        agent_straight_freq = [100, 100] #[100, 201]              # sample how long to keep straight (tsteps) from [min, max]
         randomize_init_turn_dir = False                           # if True, then initial turn going left or right is randomized
-
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
@@ -105,7 +104,7 @@ class DecHighLevelGameCfg( BaseConfig ):
     class commands: # note: commands and actions are the same for the high-level policy
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
-        command_clipping = True        # if true: clip robot + agent commands to the ranges below
+        command_clipping = False        # if true: clip robot + agent commands to the ranges below
         class ranges:
             lin_vel_x = [-3.5, 3.5] #[-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [-1.0, 1.0]     # min max [m/s]
@@ -158,10 +157,10 @@ class DecHighLevelGameCfg( BaseConfig ):
             pursuit = -1.0 #0.0
             exp_pursuit = 0. #1.0
             command_norm = -0.0
-            robot_foveation = 0.5
+            robot_foveation = 0.0
             robot_ang_vel = -0.0
             path_progress = 0.0
-            termination = 100.0
+            termination = 0.0
 
     class rewards_agent: # CUBE!
         only_positive_rewards = False
