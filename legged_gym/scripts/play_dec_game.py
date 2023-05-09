@@ -45,7 +45,7 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 3
+    max_num_envs = 2
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = True
 
@@ -58,8 +58,7 @@ def play_dec_game(args):
 
     # load policies of agent and robot
     evol_checkpoint = 0
-    learn_checkpoint = 0
-    #learn_checkpoint = 1400
+    learn_checkpoint = 1600
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = True
 
@@ -99,11 +98,15 @@ def play_dec_game(args):
     #train_cfg.runner.load_run = 'May06_23-05-56_' # pi(x, dx) with 0.5 * foveation + pursuit + 100 * terminal
     # train_cfg.runner.load_run = 'May07_00-00-04_' # pi(x, dx) with 5.0 * foveation + pursuit + 100 * terminal
 
-    #train_cfg.runner.load_run = 'May07_19-19-40_'
-
-    train_cfg.runner.load_run = 'May08_14-00-00_'
-
     # train_cfg.runner.load_run = 'May08_19-17-39_' # pi(x, dx, elapsed_t); rew = pursuit -0.1 * elapsed_t + 100 * terminal
+
+
+
+    # train_cfg.runner.load_run = 'May08_21-59-07_' # 5Hz, 3-step future, pi(x, x_future, elapsed_time)
+    # train_cfg.runner.load_run = 'May08_22-39-08_' # 5Hz, 5-step future, pi(x, x_future)
+    train_cfg.runner.load_run = 'May08_22-48-07_'  # 5Hz, 8-step future, pi(x, x_future)
+
+
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint

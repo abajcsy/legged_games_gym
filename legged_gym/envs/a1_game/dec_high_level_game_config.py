@@ -15,7 +15,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
         num_robot_states = 4            # x = (px, py, pz, theta)
         num_agent_states = 3            # x = (px, py, pz)
-        num_pred_steps = 3              # prediction length
+        num_pred_steps = 8              # prediction length
         num_hist_steps = 3 #20          # history length
 
         # num_observations_robot = 1
@@ -23,7 +23,8 @@ class DecHighLevelGameCfg( BaseConfig ):
         # num_observations_robot = 4      # GT observations: (x_rel, theta)
         # num_observations_robot = 20     # KF observations: (xhat_rel, Phat)
         # num_observations_robot = num_robot_states*(num_hist_steps+1) + num_actions_robot*num_hist_steps # HISTORY: pi(x^t-N:t, uR^t-N:t-1)
-        num_observations_robot = num_robot_states * (num_pred_steps + 1) + 1  # PREDICTIONS: pi(x^t, x^t+1:t+N, elapsed_t)
+        # num_observations_robot = num_robot_states * (num_pred_steps + 1) + 1  # PREDICTIONS w/ time: pi(x^t, x^t+1:t+N, elapsed_t)
+        num_observations_robot = num_robot_states * (num_pred_steps + 1) # PREDICTIONS: pi(x^t, x^t+1:t+N)
         # num_observations_robot = num_robot_states*2       # 1-step PREDICTIONS: pi(x, dx)
         # num_observations_robot = num_robot_states + 1     # GT state + time observations: pi(x, elapsed_t)
         # num_observations_robot = num_robot_states*2 + 1     # 1-step PREDICTIONS + time observations: pi(x, dx, elapsed_t)

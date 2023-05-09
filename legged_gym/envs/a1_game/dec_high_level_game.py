@@ -1377,8 +1377,8 @@ class DecHighLevelGame():
         #                                    limited_fov=True,
         #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
-        use_pos_and_vel = True
-        use_elapsed_time = True
+        use_pos_and_vel = False
+        use_elapsed_time = False
         # self.compute_observations_RMA_history_robot(use_pos_and_vel=use_pos_and_vel,
         #                                             use_elapsed_time=use_elapsed_time) # OBS: (x, dx, elapsed_t)
 
@@ -1606,6 +1606,7 @@ class DecHighLevelGame():
         pos_scale = 0.1
         future_rel_states_robot_frame[:, :, :-1] *= pos_scale
 
+        # import pdb; pdb.set_trace()
         # NOTE: pred_rel_state_robot_frame includes current state and future states:
         #       it's of shape: [num_envs x (N+1) x (x,y,z,theta)_rel]
         future_rel_state_robot_frame_flat = torch.flatten(future_rel_states_robot_frame, start_dim=1)
