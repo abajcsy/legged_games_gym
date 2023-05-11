@@ -221,15 +221,15 @@ class DecHighLevelGame():
 
         # robot policy info
         self.num_obs_robot = self.cfg.env.num_observations_robot
-        self.num_obs_encoded_robot = self.cfg.env.num_obs_encoded_robot
-        self.embedding_sz_robot = self.cfg.env.embedding_sz_robot
+        # self.num_obs_encoded_robot = self.cfg.env.num_obs_encoded_robot
+        # self.embedding_sz_robot = self.cfg.env.embedding_sz_robot
         self.num_privileged_obs_robot = self.cfg.env.num_privileged_obs_robot
         self.num_actions_robot = self.cfg.env.num_actions_robot
 
         # agent policy info
         self.num_obs_agent = self.cfg.env.num_observations_agent
-        self.num_obs_encoded_agent = self.cfg.env.num_obs_encoded_agent
-        self.embedding_sz_agent = self.cfg.env.embedding_sz_agent
+        # self.num_obs_encoded_agent = self.cfg.env.num_obs_encoded_agent
+        # self.embedding_sz_agent = self.cfg.env.embedding_sz_agent
         self.num_privileged_obs_agent = self.cfg.env.num_privileged_obs_agent
         self.num_actions_agent = self.cfg.env.num_actions_agent
         self.agent_dyn_type = self.cfg.env.agent_dyn_type
@@ -842,6 +842,11 @@ class DecHighLevelGame():
                                                 self.num_robot_states,
                                                 device=self.device,
                                                 requires_grad=False)
+        curr_rel_pos_global = (curr_agent_state[:, :3] - self.robot_states[:, :3]).clone()
+        curr_rel_pos_local = self.global_to_robot_frame(curr_rel_pos_global)
+        curr_rel_yaw_local = torch.atan2(curr_rel_pos_local[:, 1], curr_rel_pos_local[:, 0]).unsqueeze(-1)
+        curr_rel_state = torch.cat((curr_rel_pos_local, curr_rel_yaw_local), dim=-1)
+        future_rel_states_robot_frame[:, 0, :] = curr_rel_state
 
         turn_or_straight_idx = self.turn_or_straight_idx.clone()
         last_turn_tstep = self.last_turn_tstep.clone()
@@ -1367,7 +1372,7 @@ class DecHighLevelGame():
         sense_obstacles = self.cfg.terrain.fov_measure_heights
 
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
-        # self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
+        #self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
         # self.compute_observations_pos_angle_time_robot()    # OBS: (x_rel, yaw_rel, elapsed_t)
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
@@ -1382,7 +1387,9 @@ class DecHighLevelGame():
         # self.compute_observations_RMA_history_robot(use_pos_and_vel=use_pos_and_vel,
         #                                             use_elapsed_time=use_elapsed_time) # OBS: (x, dx, elapsed_t)
 
-        self.compute_observations_RMA_predictions_robot(use_elapsed_time=use_elapsed_time)  # OBS: (x^t, x^{t+1:t+N})
+        add_noise = False
+        self.compute_observations_RMA_predictions_robot(use_elapsed_time=use_elapsed_time,
+                                                        add_noise=add_noise)  # OBS: (x^t, x^{t+1:t+N})
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
@@ -1404,6 +1411,22 @@ class DecHighLevelGame():
         pos_scale = 0.1
         self.obs_buf_robot = torch.cat((rel_pos_local * pos_scale,
                                         rel_yaw_local), dim=-1)
+
+        if self.debug_viz:
+            if self.agent_dyn_type == "dubins":
+                # get future states of the agent (for visualization)
+                future_rel_states_robot_frame, future_agent_states = \
+                    self._predict_weaving_command_agent(pred_hor=self.num_pred_steps)
+                self.ll_env.agent_state_future = future_agent_states  # true future
+
+            # update the visualization variables of agent history, ground-truth future, and predicted future
+            self.ll_env.agent_state_hist = self.agent_state_hist # true history
+
+            #   For debug visualization: update agent state history
+            #   TODO: for now only using (x,y,z) components
+            self.agent_state_hist = torch.cat((self.agent_pos[:, :3].unsqueeze(1),
+                                               self.agent_state_hist[:, 0:self.num_hist_steps - 1, :]),
+                                              dim=1)
 
     def compute_observations_pos_angle_time_robot(self):
         """ Computes relative position and angle w.r.t robot's base frame.
@@ -1587,7 +1610,7 @@ class DecHighLevelGame():
             self.data_save_tstep += 1
         # ------------------------------------------------------------------- #
 
-    def compute_observations_RMA_predictions_robot(self, use_elapsed_time=False):
+    def compute_observations_RMA_predictions_robot(self, use_elapsed_time=False, add_noise=False):
         """This function can handle observations like:
             pi_R(x^t, x^t+1:t+N, elapsed_t)     where x is true relative state in robot base frame
                                                      x^t+1:t+N is future rel state assuming uR == 0
@@ -1602,14 +1625,24 @@ class DecHighLevelGame():
             future_rel_states_robot_frame, future_agent_states = \
                 self._predict_weaving_command_agent(pred_hor=self.num_pred_steps)
 
+        if add_noise:
+            # add noise to the predicted states
+            mean_np = np.zeros((self.num_envs, self.num_robot_states))
+            cov_tensor = 0.1 * torch.eye(self.num_robot_states, dtype=torch.float32, device=self.device)
+            cov_batch_tensor = cov_tensor.repeat(self.num_envs, 1).reshape(self.num_envs, self.num_robot_states, self.num_robot_states)
+            for tstep in range(self.num_pred_steps):
+                v_tensor = self.sample_batch_mvn(mean_np, cov_batch_tensor.cpu().numpy(), self.num_envs)
+                future_rel_states_robot_frame[:, tstep, :] += v_tensor
+
         # scale just the positional entries (xyz) of the future states
         pos_scale = 0.1
-        future_rel_states_robot_frame[:, :, :-1] *= pos_scale
+        future_rel_states_robot_frame_scaled = future_rel_states_robot_frame.clone()
+        future_rel_states_robot_frame_scaled[:, :, :-1] *= pos_scale
 
         # import pdb; pdb.set_trace()
         # NOTE: pred_rel_state_robot_frame includes current state and future states:
         #       it's of shape: [num_envs x (N+1) x (x,y,z,theta)_rel]
-        future_rel_state_robot_frame_flat = torch.flatten(future_rel_states_robot_frame, start_dim=1)
+        future_rel_state_robot_frame_flat = torch.flatten(future_rel_states_robot_frame_scaled, start_dim=1)
 
         # obs buf is laid out:
         #   (x^t, x^t+1:t+N)
@@ -1625,8 +1658,11 @@ class DecHighLevelGame():
         if self.debug_viz:
             # update the visualization variables of agent history, ground-truth future, and predicted future
             self.ll_env.agent_state_hist = self.agent_state_hist # true history
-            self.ll_env.agent_state_preds = future_agent_states # predicted future (is the true future)
+            self.ll_env.agent_state_preds = future_agent_states # predicted future agent states (is the true future)
             self.ll_env.agent_state_future = future_agent_states  # true future (is the predicted future)
+            self.ll_env.rel_state_preds = future_rel_states_robot_frame # predicted future relative states
+            self.ll_env.robot_state_at_pred_start = self.robot_states[:, :3].clone()
+            self.ll_env.rel_state_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7].clone()
 
         #   For debug visualization: update agent state history
         #   TODO: for now only using (x,y,z) components
@@ -1707,7 +1743,8 @@ class DecHighLevelGame():
                 self._predict_weaving_command_agent(pred_hor=self.num_pred_steps)
             # update the visualization variables of agent history, ground-truth future, and predicted future
             self.ll_env.agent_state_hist = self.agent_state_hist # true history
-            self.ll_env.agent_state_preds = next_agent_pos_global.unsqueeze(1) # predicted future
+            if use_pos_and_vel:
+                self.ll_env.agent_state_preds = next_agent_pos_global.unsqueeze(1) # predicted 1-step future
             self.ll_env.agent_state_future = future_agent_states # true future
 
         # update the history vectors:
@@ -2025,6 +2062,8 @@ class DecHighLevelGame():
             else:
                 self.gym.poll_viewer_events(self.viewer)
 
+    # ------------- Helpers -------------- #
+
     def update_training_iter_num(self, iter):
         """Updates the internal variable keeping track of training iteration"""
         self.training_iter_num = iter
@@ -2049,6 +2088,25 @@ class DecHighLevelGame():
 
         local_vec = quat_rotate_inverse(robot_base_quat_global, global_vec)
         return local_vec
+
+    def sample_batch_mvn(self, mean, cov, batch_size) -> np.ndarray:
+        """
+        Batch sample multivariate normal distribution.
+
+        Arguments:
+
+            mean (np.ndarray): expected values of shape (B, D)
+            cov (np.ndarray): covariance matrices of shape (B, D, D)
+            batch_size (int): additional batch shape (B)
+
+        Returns: torch.Tensor or shape: (B, D)
+                 with one samples from the multivariate normal distributions
+        """
+        L = np.linalg.cholesky(cov)
+        X = np.random.standard_normal((batch_size, mean.shape[-1], 1))
+        Y = (L @ X).reshape(batch_size, mean.shape[-1]) + mean
+        Y_tensor = torch.tensor(Y, dtype=torch.float32, device=self.device, requires_grad=False)
+        return Y_tensor
 
     def expand_with_zeros_at_dim(self, tensor_in, dim):
         """Expands the tensor_in by putting zeros at the old "dim" location.

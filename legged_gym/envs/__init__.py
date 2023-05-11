@@ -45,6 +45,7 @@ from .a1_game.low_level_game import LowLevelGame
 from .a1_game.low_level_game_config import LowLevelGameCfg, LowLevelGamePPO
 from .a1_game.high_level_game_flat_config import HighLevelGameFlatCfg, HighLevelGameFlatCfgPPO
 from .a1_game.dec_high_level_game_config import DecHighLevelGameCfg, DecHighLevelGameCfgPPO
+from .a1_game.rma_dec_high_level_game_config import RMADecHighLevelGameCfg, RMADecHighLevelGameCfgPPO
 from .a1_game.dec_high_level_game_obstacles_config import DecHighLevelGameObstaclesCfg, DecHighLevelGameObstaclesCfgPPO
 
 from legged_gym.utils.task_registry import  task_registry
@@ -59,3 +60,4 @@ task_registry.register( "low_level_game", LowLevelGame, LowLevelGameCfg(), LowLe
 task_registry.register( "high_level_game", HighLevelGame, HighLevelGameFlatCfg(), HighLevelGameFlatCfgPPO() )
 task_registry.register( "dec_high_level_game", DecHighLevelGame, DecHighLevelGameCfg(), DecHighLevelGameCfgPPO() )
 task_registry.register( "dec_high_level_game_obstacles", DecHighLevelGame, DecHighLevelGameObstaclesCfg(), DecHighLevelGameObstaclesCfgPPO() )
+task_registry.register( "rma_dec_high_level_game", DecHighLevelGame, RMADecHighLevelGameCfg(), RMADecHighLevelGameCfgPPO() )
