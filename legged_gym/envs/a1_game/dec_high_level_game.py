@@ -1108,6 +1108,8 @@ class DecHighLevelGame():
         # compute the high-level observation for each agent
         self.compute_observations_agent()               # compute high-level observations for agent
         self.compute_observations_robot(command_robot, command_agent)  # compute high-level observations for robot
+        if self.num_privileged_obs_robot is not None:
+            self.compute_privileged_observations_robot(command_robot, command_agent)
 
         # print("[in post_physics_step] obs_buf_robot: ", self.obs_buf_robot)
 
@@ -1150,16 +1152,22 @@ class DecHighLevelGame():
         # reset the optimal robot actions
         self.bc_actions_robot[env_ids, :] = 0.
 
-        # reset agent buffers
+        # reset agent observation buffers
         self.obs_buf_agent[env_ids, :] = -self.MAX_REL_POS
         self.obs_buf_agent[env_ids, -2:] = 0.
         # print("reset obs buf agent: ", self.obs_buf_agent[env_ids, :])
 
-        # reset robot buffers
+        # reset robot observation buffers
         reset_robot_obs = torch.zeros(len(env_ids), self.num_obs_robot, device=self.device, requires_grad=False)
         if self.num_obs_robot > 3:  # TODO: kind of a hack
             reset_robot_obs[:, self.pos_idxs_robot] = self.MAX_REL_POS # only the initial relative position is reset different
         self.obs_buf_robot[env_ids, :] = reset_robot_obs
+
+        # reset the privileged observation buffers
+        if self.num_privileged_obs_robot is not None:
+            self.privileged_obs_buf_robot[env_ids, :] = 0
+        if self.num_privileged_obs_agent is not None:
+            self.privileged_obs_buf_agent[env_ids, :] = 0
 
         # reset the kalman filter
         if self.num_states_kf == 4:
@@ -1366,11 +1374,19 @@ class DecHighLevelGame():
             self.episode_sums_agent["termination"] += rew
         # print("high level rewards + low-level rewards: ", self.rew_buf)
 
+    def compute_privileged_observations_robot(self, command_robot, command_agent):
+        self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=True)  # FUTURE OBS: (x^t, x^{t+1:t+N})
+
     def compute_observations_robot(self, command_robot, command_agent):
         """ Computes observations of the robot
         """
-        sense_obstacles = self.cfg.terrain.fov_measure_heights
+        # PHASE 1
+        # self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=False)  # OBS: (x^t, x^{t+1:t+N})
 
+        # PHASE 2
+        self.compute_observations_RMA_history_robot(use_pos_and_vel=False) # HISTORY OBS: (x, dx, elapsed_t)
+
+        # sense_obstacles = self.cfg.terrain.fov_measure_heights
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
         #self.compute_observations_pos_angle_robot()       # OBS: (x_rel, yaw_rel)
         # self.compute_observations_pos_angle_time_robot()    # OBS: (x_rel, yaw_rel, elapsed_t)
@@ -1381,15 +1397,6 @@ class DecHighLevelGame():
         #                                    command_agent,
         #                                    limited_fov=True,
         #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
-
-        use_pos_and_vel = False
-        use_elapsed_time = False
-        # self.compute_observations_RMA_history_robot(use_pos_and_vel=use_pos_and_vel,
-        #                                             use_elapsed_time=use_elapsed_time) # OBS: (x, dx, elapsed_t)
-
-        add_noise = False
-        self.compute_observations_RMA_predictions_robot(use_elapsed_time=use_elapsed_time,
-                                                        add_noise=add_noise)  # OBS: (x^t, x^{t+1:t+N})
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
@@ -1610,7 +1617,7 @@ class DecHighLevelGame():
             self.data_save_tstep += 1
         # ------------------------------------------------------------------- #
 
-    def compute_observations_RMA_predictions_robot(self, use_elapsed_time=False, add_noise=False):
+    def compute_observations_RMA_predictions_robot(self, add_noise=False, privileged=False):
         """This function can handle observations like:
             pi_R(x^t, x^t+1:t+N, elapsed_t)     where x is true relative state in robot base frame
                                                      x^t+1:t+N is future rel state assuming uR == 0
@@ -1646,33 +1653,28 @@ class DecHighLevelGame():
 
         # obs buf is laid out:
         #   (x^t, x^t+1:t+N)
-        self.obs_buf_robot = future_rel_state_robot_frame_flat
+        if privileged:
+            self.privileged_obs_buf_robot = future_rel_state_robot_frame_flat
+        else:
+            self.obs_buf_robot = future_rel_state_robot_frame_flat
 
-        if use_elapsed_time:
-            # Append the elapsed time to the observation
-            elapsed_time_scale = 1. / self.max_episode_length
-            self.obs_buf_robot = torch.cat((self.obs_buf_robot,
-                                            self.curr_episode_step.unsqueeze(-1) * elapsed_time_scale),
-                                            dim=-1)
+            if self.debug_viz:
+                # update the visualization variables of agent history, ground-truth future, and predicted future
+                self.ll_env.agent_state_hist = self.agent_state_hist # true history
+                self.ll_env.agent_state_preds = future_agent_states # predicted future agent states (is the true future)
+                self.ll_env.agent_state_future = future_agent_states  # true future (is the predicted future)
+                self.ll_env.rel_state_preds = future_rel_states_robot_frame # predicted future relative states
+                self.ll_env.robot_state_at_pred_start = self.robot_states[:, :3].clone()
+                self.ll_env.rel_state_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7].clone()
 
-        if self.debug_viz:
-            # update the visualization variables of agent history, ground-truth future, and predicted future
-            self.ll_env.agent_state_hist = self.agent_state_hist # true history
-            self.ll_env.agent_state_preds = future_agent_states # predicted future agent states (is the true future)
-            self.ll_env.agent_state_future = future_agent_states  # true future (is the predicted future)
-            self.ll_env.rel_state_preds = future_rel_states_robot_frame # predicted future relative states
-            self.ll_env.robot_state_at_pred_start = self.robot_states[:, :3].clone()
-            self.ll_env.rel_state_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7].clone()
-
-        #   For debug visualization: update agent state history
-        #   TODO: for now only using (x,y,z) components
-        self.agent_state_hist = torch.cat((self.agent_pos[:, :3].unsqueeze(1),
-                                            self.agent_state_hist[:, 0:self.num_hist_steps-1, :]),
-                                            dim=1)
+            #   For debug visualization: update agent state history
+            #   TODO: for now only using (x,y,z) components
+            self.agent_state_hist = torch.cat((self.agent_pos[:, :3].unsqueeze(1),
+                                                self.agent_state_hist[:, 0:self.num_hist_steps-1, :]),
+                                                dim=1)
 
     def compute_observations_RMA_history_robot(self,
-                                               use_pos_and_vel=False,
-                                               use_elapsed_time=False):
+                                               use_pos_and_vel=False):
         """This function can handle observations like:
             pi_R(x^t, x^t-1:t-N, uR^t-1:t-N, elapsed_t)     where the x is true relative state in robot frame
                                                                    x^t-1:t-N is future relative state assuming robot is static
@@ -1728,13 +1730,6 @@ class DecHighLevelGame():
             self.obs_buf_robot = torch.cat((rel_state,
                                             rel_lin_vel_robot_frame,
                                             rel_yaw_vel_robot_frame),
-                                            dim=-1)
-
-        if use_elapsed_time:
-            # Append the elapsed time to the observation
-            elapsed_time_scale = 1. / self.max_episode_length
-            self.obs_buf_robot = torch.cat((self.obs_buf_robot,
-                                            self.curr_episode_step.unsqueeze(-1) * elapsed_time_scale),
                                             dim=-1)
 
         if self.debug_viz:

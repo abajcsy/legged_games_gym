@@ -16,19 +16,19 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         num_robot_states = 4            # x = (px, py, pz, theta)
         num_agent_states = 3            # x = (px, py, pz)
         num_pred_steps = 8              # prediction length
-        num_hist_steps = 8 #20          # history length
+        num_hist_steps = 8              # history length
 
-        # num_observations_robot = num_robot_states*(num_hist_steps+1) + num_actions_robot*num_hist_steps # HISTORY: pi(x^t-N:t, uR^t-N:t-1)
-        num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        # PHASE 1 INFO
+        # num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        # num_observations_agent = 4          # AGENT (CUBE)
+        # num_privileged_obs_robot = None
+        # num_privileged_obs_agent = None
+
+        # PHASE 2 INFO
+        num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
         num_observations_agent = 4          # AGENT (CUBE)
-
-        num_privileged_obs_robot = None
+        num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
         num_privileged_obs_agent = None
-
-        # num_obs_encoded_robot = num_observations_robot - num_robot_states # how many of the observations are encoded?
-        # num_obs_encoded_agent = None
-        # embedding_sz_robot = 8
-        # embedding_sz_agent = 8
 
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
@@ -220,12 +220,12 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
 
         # ActorCriticGamesRMA: information about the estimator(s)
-        estimator = False   # True uses the learned estimator: zhat = E(x^history, uR^history)
+        estimator = True   # True uses the learned estimator: zhat = E(x^history, uR^history)
         RMA = True         # True uses the teacher estimator: z* = T(x^future)
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
-        num_privilege_obs = 4*8   # i.e., num_actor_obs_encoded
+        num_privilege_obs_RMA = 4*8   # i.e., 8-step future relative state
+        num_privilege_obs_estimator = 4*(8+1) + 3*8    # i.e., 8-step past rel-state and robot controls + present state
         num_latent = 8          # i.e., embedding sz
-        estimator_hist_len = 8
 
     class algorithm:
         # training params
@@ -253,13 +253,11 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
 
         # logging
         save_learn_interval = 200  # check for potential saves every this many iterations
-        save_evol_interval = 1 
-        experiment_name = 'test'
-        run_name = ''
+        save_evol_interval = 1
         # load and resume
-        resume_robot = False
+        resume_robot = True
         resume_agent = False
-        load_run = 'May04_12-15-56_' #'Apr03_15-16-53_' #'Mar27_13-40-43_' #'Mar09_19-33-14_'  # -1 = last run
+        load_run = 'phase_1_policy' #'May04_12-15-56_' #'Apr03_15-16-53_' #'Mar27_13-40-43_' #'Mar09_19-33-14_'  # -1 = last run
         evol_checkpoint_robot = 0       
         learn_checkpoint_robot = 1600   # -1 = last saved model
         evol_checkpoint_agent = 0

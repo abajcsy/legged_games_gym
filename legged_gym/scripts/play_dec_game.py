@@ -45,7 +45,7 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 2
+    max_num_envs = 3
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = True
 
@@ -58,7 +58,7 @@ def play_dec_game(args):
 
     # load policies of agent and robot
     evol_checkpoint = 0
-    learn_checkpoint = 0 #1600
+    learn_checkpoint = 1600
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = True
 
@@ -106,7 +106,7 @@ def play_dec_game(args):
     # train_cfg.runner.load_run = 'May08_22-48-07_'  # 5Hz, 8-step future, pi(x, x_future)
     # train_cfg.runner.load_run = 'May08_22-59-03_' # 5Hz, 8-step future, pi(x, x_future), RANDOMIZED AGENT WEAVING
 
-    train_cfg.runner.load_run = 'May10_20-10-39_'
+    train_cfg.runner.load_run = 'May11_03-24-15_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
