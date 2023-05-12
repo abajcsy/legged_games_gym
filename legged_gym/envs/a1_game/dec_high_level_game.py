@@ -490,21 +490,26 @@ class DecHighLevelGame():
         for tstep in range(num_ll_steps):
 
             # simulate the other agent
+            # TODO: hack here the commands from the joystick
             if self.agent_dyn_type == "integrator":
                 #command_agent = self._straight_line_command_agent()
                 command_agent = self._random_straight_line_command_agent()
             elif self.agent_dyn_type == "dubins":
-                # command_agent = self._brownian_motion_command_agent()
-                output = self._weaving_command_agent(self.turn_or_straight_idx.clone(),
-                                                     self.last_turn_tstep.clone(),
-                                                     self.last_straight_tstep.clone(),
-                                                     self.turn_direction_idx.clone())
-                command_agent = output[0]
-                self.turn_or_straight_idx = output[1]
-                self.last_turn_tstep = output[2]
-                self.last_straight_tstep = output[3]
-                self.turn_direction_idx = output[4]
-                self.curr_agent_command = command_agent
+                if self.cfg.commands.use_joypad:
+                    command_agent = self._get_command_joy()
+                else:
+                    # command_agent = self._brownian_motion_command_agent()
+                    output = self._weaving_command_agent(self.turn_or_straight_idx.clone(),
+                                                         self.last_turn_tstep.clone(),
+                                                         self.last_straight_tstep.clone(),
+                                                         self.turn_direction_idx.clone())
+                    command_agent = output[0]
+                    self.turn_or_straight_idx = output[1]
+                    self.last_turn_tstep = output[2]
+                    self.last_straight_tstep = output[3]
+                    self.turn_direction_idx = output[4]
+                    self.curr_agent_command = command_agent
+
 
             if self.cfg.robot_sensing.prey_policy_curriculum:
                 if self.prey_policy_type == "static":
@@ -581,6 +586,24 @@ class DecHighLevelGame():
         command_robot[:, 2] = 0
 
         return command_robot
+
+    def _get_command_joy(self):
+        command_agent = torch.zeros(self.num_envs, self.num_actions_agent,
+                                    device=self.device, requires_grad=False)
+        joypad_available = (time() - self._joypad.time_last_joy) < self._joypad.joypad_timeout
+        if (joypad_available):
+            print("Joy available")
+            lin_speed_x = self._joypad.forward_value_normalized *self.command_ranges["agent_lin_vel_x"][1]
+            lin_speed_ang = self._joypad.angular_value_normalized *self.command_ranges["agent_ang_vel_yaw"][1]
+            #print("lin speed", lin_speed_x)
+            #print("ang speed", lin_speed_ang)
+        else:
+            lin_speed_x = 0
+            lin_speed_ang = 0
+        command_agent[:,0] = lin_speed_x
+        command_agent[:,1] = lin_speed_ang
+        print(command_agent)
+        return command_agent
 
     def _turn_and_pursue_command_robot(self, command_robot):
         rel_pos_global = self.agent_pos[:, :3] - self.robot_states[:, :3]
