@@ -1,7 +1,7 @@
 
 from legged_gym.envs.base.base_config import BaseConfig
 
-class DecHighLevelGameCfg( BaseConfig ):
+class RMADecHighLevelGameCfg( BaseConfig ):
     class env:
         # note:
         #   48 observations for nominal A1 setup
@@ -16,25 +16,19 @@ class DecHighLevelGameCfg( BaseConfig ):
         num_robot_states = 4            # x = (px, py, pz, theta)
         num_agent_states = 3            # x = (px, py, pz)
         num_pred_steps = 8              # prediction length
-        num_hist_steps = 8 #20          # history length
+        num_hist_steps = 8              # history length
 
-        # num_observations_robot = 1
-        # num_observations_robot = 1+16 # theta
-        # num_observations_robot = 4      # GT observations: (x_rel, theta)
-        # num_observations_robot = 20     # KF observations: (xhat_rel, Phat)
-        # num_observations_robot = num_robot_states*(num_hist_steps+1) + num_actions_robot*num_hist_steps # HISTORY: pi(x^t-N:t, uR^t-N:t-1)
-        num_observations_robot = num_robot_states * (num_pred_steps + 1) # PREDICTIONS: pi(x^t, x^t+1:t+N)
-        # num_observations_robot = num_robot_states*2       # 1-step PREDICTIONS: pi(x, dx)
+        # PHASE 1 INFO
+        # num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        # num_observations_agent = 4          # AGENT (CUBE)
+        # num_privileged_obs_robot = None
+        # num_privileged_obs_agent = None
 
+        # PHASE 2 INFO
+        num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
         num_observations_agent = 4          # AGENT (CUBE)
-
-        num_privileged_obs_robot = None
+        num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
         num_privileged_obs_agent = None
-
-        num_obs_encoded_robot = num_observations_robot - num_robot_states # how many of the observations are encoded?
-        num_obs_encoded_agent = 4
-        embedding_sz_robot = 8
-        embedding_sz_agent = 2
 
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
@@ -47,8 +41,8 @@ class DecHighLevelGameCfg( BaseConfig ):
         agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
         agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
         # for WEAVING agent policy only
-        agent_turn_freq = [100,100] #[50, 100]                   # sample how long to turn (tsteps) from [min, max]
-        agent_straight_freq = [100,100] # [100, 201]              # sample how long to keep straight (tsteps) from [min, max]
+        agent_turn_freq = [50, 100]                   # sample how long to turn (tsteps) from [min, max]
+        agent_straight_freq = [100, 200]              # sample how long to keep straight (tsteps) from [min, max]
         randomize_init_turn_dir = True #False # True                           # if True, then initial turn going left or right is randomized
 
     class robot_sensing:
@@ -111,7 +105,6 @@ class DecHighLevelGameCfg( BaseConfig ):
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
         command_clipping = False        # if true: clip robot + agent commands to the ranges below
-        use_joypad = True
         class ranges:
             lin_vel_x = [-3.5, 3.5] #[-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [-1.0, 1.0]     # min max [m/s]
@@ -216,7 +209,7 @@ class DecHighLevelGameCfg( BaseConfig ):
             default_buffer_size_multiplier = 5
             contact_collection = 2 # 0: never, 1: last sub-step, 2: all sub-steps (default=2)
 
-class DecHighLevelGameCfgPPO( BaseConfig ):
+class RMADecHighLevelGameCfgPPO( BaseConfig ):
     seed = 1
     runner_class_name = 'DecGamePolicyRunner' # 'OnPolicyRunner'
 
@@ -225,17 +218,14 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
-        
-        # only for 'ActorCriticGames'
-        encoder_hidden_dims = [512, 256, 128]
 
-        # only for 'ActorCriticWithProxy'
-        decoder_hidden_dims = [128, 256, 512]
-
-        # only for 'ActorCriticRecurrent':
-        # rnn_type = 'lstm'
-        # rnn_hidden_size = 512
-        # rnn_num_layers = 1
+        # ActorCriticGamesRMA: information about the estimator(s)
+        estimator = True   # True uses the learned estimator: zhat = E(x^history, uR^history)
+        RMA = True         # True uses the teacher estimator: z* = T(x^future)
+        RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
+        num_privilege_obs_RMA = 4*8   # i.e., 8-step future relative state
+        num_privilege_obs_estimator = 4*(8+1) + 3*8    # i.e., 8-step past rel-state and robot controls + present state
+        num_latent = 8          # i.e., embedding sz
 
     class algorithm:
         # training params
@@ -255,8 +245,7 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
 
     class runner:
         #policy_class_name = 'ActorCritic'
-        # policy_class_name = 'ActorCriticWithProxy'
-        policy_class_name = 'ActorCriticGames'
+        policy_class_name = 'ActorCriticGamesRMA'
         algorithm_class_name = 'PPO'
         num_steps_per_env = 10 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
@@ -264,13 +253,11 @@ class DecHighLevelGameCfgPPO( BaseConfig ):
 
         # logging
         save_learn_interval = 200  # check for potential saves every this many iterations
-        save_evol_interval = 1 
-        experiment_name = 'test'
-        run_name = ''
+        save_evol_interval = 1
         # load and resume
-        resume_robot = False
+        resume_robot = True
         resume_agent = False
-        load_run = 'May04_12-15-56_' #'Apr03_15-16-53_' #'Mar27_13-40-43_' #'Mar09_19-33-14_'  # -1 = last run
+        load_run = 'phase_1_policy' #'May04_12-15-56_' #'Apr03_15-16-53_' #'Mar27_13-40-43_' #'Mar09_19-33-14_'  # -1 = last run
         evol_checkpoint_robot = 0       
         learn_checkpoint_robot = 1600   # -1 = last saved model
         evol_checkpoint_agent = 0

@@ -40,48 +40,41 @@ import torch
 
 from isaacgym import gymapi
 
+import pickle
+from datetime import datetime
 
-def play_dec_game(args):
+
+def collect_prey_data(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 1
+    max_num_envs = 1000
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
-    env_cfg.env.debug_viz = True
+    env_cfg.env.debug_viz = False
+    env_cfg.env.capture_dist = 0 #THIS IS NEVER TRUE SO THEY WILL NEVER BE CAPTURED
+    env_cfg.env.agent_turn_freq = [50,150]
+    env_cfg.env.agent_straight_freq = [100,200]
 
-    # # prepare environment
-    print("[play_dec_game] making environment...")
+    # prepare environment
+    print("[collect_prey_data] making environment...")
     env, _ = task_registry.make_dec_env(name=args.task, args=args, env_cfg=env_cfg)
-    print("[play_dec_game] getting observations for both agents..")
+    print("[collect_prey_data] getting observations for both agents..")
     obs_agent = env.get_observations_agent()
     obs_robot = env.get_observations_robot()
 
     # load policies of agent and robot
     evol_checkpoint = 0
-    # learn_checkpoint = 1000
     learn_checkpoint = 1600
     train_cfg.runner.resume_robot = True
-    train_cfg.runner.resume_agent = False
+    train_cfg.runner.resume_agent = True
 
-    # train_cfg.runner.load_run = 'Apr03_15-16-53_' # Policy without obstacles, in 'dec_high_level_game'
-    # train_cfg.runner.load_run = 'Apr21_19-16-43_' # true rel yaw local, FULL FOV
-    # train_cfg.runner.load_run = 'Apr22_16-22-37_' # KF rel yaw local, FULL FOV
-    # train_cfg.runner.load_run = 'Apr22_13-12-56_' # KF, ZED FOV NO curriculum, w/ covariance, cmd clip
-    # train_cfg.runner.load_run = 'Apr22_13-54-32_' # KF, ZED FOV w/ curriculum, w/ covariance, cmd clip
-    # train_cfg.runner.load_run = 'Apr22_15-35-56_' # local rel pos, ZED FOV
-    # train_cfg.runner.load_run = 'Apr21_17-39-32_' # local rel pos, FULL FOV
-
-    #train_cfg.runner.load_run = 'Apr23_09-40-25_' # WORKING POLICY with BC
-    #train_cfg.runner.load_run = 'Apr26_18-08-49_' # policy with -||u||^2
-
-    #train_cfg.runner.load_run = 'Apr28_09-17-01_' # policy with (xrel, upred^t:t:10)
-
-    train_cfg.runner.load_run = 'Apr30_18-18-17_' # policy with slower HL policy frequency
+    train_cfg.runner.load_run = 'May08_22-48-07_'  # 5Hz, 8-step future, pi(x, x_future)
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.evol_checkpoint_agent = evol_checkpoint
+
     dec_ppo_runner, train_cfg = task_registry.make_dec_alg_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
     policy_agent = dec_ppo_runner.get_inference_policy(agent_id=0, device=env.device)
     policy_robot = dec_ppo_runner.get_inference_policy(agent_id=1, device=env.device)
@@ -94,7 +87,23 @@ def play_dec_game(args):
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
 
-    for i in range(10 * int(env.max_episode_length)):
+
+    # data saving info.
+    rel_state_data = None
+    num_sim_steps = int(env_cfg.env.episode_length_s / env_cfg.env.robot_hl_dt)
+
+    for i in range(num_sim_steps):
+        print("Collecting data at tstep: ", i, " / ", num_sim_steps, "...")
+
+        # save the current agent state.
+        agent_state = env.ll_env.root_states[env.ll_env.agent_indices, :3]
+        robot_state = env.ll_env.root_states[env.ll_env.robot_indices, :3]
+        rel_state = agent_state - robot_state
+        if rel_state_data is None:
+            rel_state_data = np.array(rel_state.unsqueeze(1).cpu().numpy())
+        else:
+            rel_state_data = np.append(rel_state_data, rel_state.unsqueeze(1).cpu().numpy(), axis=1)
+
         # print("[play_dec_game] current obs_robot: ", obs_robot.detach())
         actions_agent = policy_agent(obs_agent.detach())
         actions_robot = policy_robot(obs_robot.detach())
@@ -110,6 +119,17 @@ def play_dec_game(args):
             camera_position += camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
 
+    print("DONE! Saving data...")
+    now = datetime.now()
+    dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
+    filename = LEGGED_GYM_ROOT_DIR + "/legged_gym/predictors/data/rel_state_data_" + str(max_num_envs) + "agents.pickle"
+    data_dict = {"rel_state_data": rel_state_data, 
+                 "dt": env_cfg.env.robot_hl_dt,
+                 "traj_length_s": env_cfg.env.episode_length_s}
+
+    with open(filename, 'wb') as handle:
+        pickle.dump(data_dict, handle)
+
 if __name__ == '__main__':
     args = get_dec_args()
-    play_dec_game(args)
+    collect_prey_data(args)
