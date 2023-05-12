@@ -30,6 +30,7 @@
 
 from .helpers import class_to_dict, get_load_path, get_args, get_dec_args, export_policy_as_jit, set_seed, update_class_from_dict
 from .task_registry import task_registry
+from .joypad import Joypad
 from .logger import Logger
 from .math import *
 from .terrain import Terrain

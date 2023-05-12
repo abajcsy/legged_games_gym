@@ -21,8 +21,10 @@ from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_fl
 from legged_gym.utils.helpers import class_to_dict, get_load_path
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 from legged_gym.utils import task_registry
+from legged_gym.utils.joypad import Joypad
 from legged_gym.filters.kalman_filter import KalmanFilter
 from legged_gym.filters.ma_kalman_filter import MultiAgentKalmanFilter
+from threading import Thread
 #from legged_gym.filters.kf_torchfilter import UKFTorchFilter
 import sys
 
@@ -182,6 +184,11 @@ class DecHighLevelGame():
         self.fov_curr_idx = 0
         if self.cfg.robot_sensing.fov_curriculum:
             self.robot_full_fov[:] = self.cfg.robot_sensing.fov_levels[self.fov_curr_idx]
+            
+        if self.cfg.commands.use_joypad:
+            self._joypad = Joypad()
+            thread = Thread(target=self._joypad.listen)
+            thread.start()
 
         # if using a PREY curriculum, initialize it with starting prey relative angle range
         self.prey_curr_idx = 0
@@ -464,6 +471,8 @@ class DecHighLevelGame():
         if self.command_clipping:
             command_robot = self.clip_command_robot(command_robot)
 
+        # print("[CLIPPED] command robot: ", command_robot)
+
         # NOTE: low-level policy requires 4D control
         # update the low-level simulator command since it deals with the robot
         ll_env_command_robot = torch.cat((command_robot,
@@ -478,7 +487,6 @@ class DecHighLevelGame():
         ll_freq = self.ll_env.dt
         num_ll_steps = int(hl_freq / ll_freq)
 
-        # start_loop_time = time()
         for tstep in range(num_ll_steps):
 
             # simulate the other agent
@@ -548,6 +556,7 @@ class DecHighLevelGame():
         p_cmd_robot[:, -1] = torch.clip(rel_yaw_local, min=-3.14, max=3.14) #torch.clip(rel_yaw_local, min=-1, max=1)
 
         return p_cmd_robot
+
 
     def _straight_line_command_augmented_robot(self, command_robot_1d):
         rel_agent_pos_xyz = self.agent_pos[:, :3] - self.robot_states[:, :3]
@@ -1097,6 +1106,7 @@ class DecHighLevelGame():
 
         # reset environments
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+
         self.reset_idx(env_ids)
 
         # refresh the low-level policy's observation buf
@@ -1686,6 +1696,8 @@ class DecHighLevelGame():
         """
         rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
         rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+
+        # from robot's POV, get its sensing
         rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
         rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
 
