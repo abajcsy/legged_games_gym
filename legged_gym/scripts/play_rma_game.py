@@ -54,15 +54,16 @@ def play_rma_game(args):
     env, _ = task_registry.make_dec_env(name=args.task, args=args, env_cfg=env_cfg)
     print("[play_rma_game] getting observations for both agents..")
     obs_agent = env.get_observations_agent()
+    privileged_obs_robot = env.get_privileged_observations_robot()
     obs_robot = env.get_observations_robot()
 
     # load policies of agent and robot
     evol_checkpoint = 0
-    learn_checkpoint = 0
+    learn_checkpoint = 200
     train_cfg.runner.resume_robot = True # only load robot
     train_cfg.runner.resume_agent = False
 
-    train_cfg.runner.load_run = 'May11_15-39-19_'
+    train_cfg.runner.load_run = 'May11_18-53-25_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
@@ -81,22 +82,31 @@ def play_rma_game(args):
     for i in range(10 * int(env.max_episode_length)):
 
         # Get the estimator information
-        h = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
-                         dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
-        c = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
-                         dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
-        hidden_state = (h, c)
-
-        # get the estimator latent
-        estimator_obs = obs_robot.clone().unsqueeze(0)
+        # h = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
+        #                  dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
+        # c = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
+        #                  dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
+        # hidden_state = (h, c)
+        #
+        # # get the estimator latent
+        # estimator_obs = obs_robot.clone().unsqueeze(0)
+        estimator_obs = privileged_obs_robot.clone().unsqueeze(0)
+        estimator_obs = estimator_obs[:, :, dagger_runner.alg.actor_critic.privilege_mask]
+        hidden_state = None
         zhat, hidden_state = dagger_runner.alg.actor_critic.estimate_latent(estimator_obs, hidden_state)
 
         # actions_robot = dagger_runner.alg.actor_critic.estimate_actor(obs_robot.detach(), zhat[0].detach())
         actions_robot = policy_robot(obs_robot.detach(), zhat[0].detach())
+        zexpert = dagger_runner.alg.actor_critic.acquire_latent(privileged_obs_robot)
+        actions_robot_expert = dagger_runner.alg.actor_critic.RMA_actor(privileged_obs_robot.detach())
+
+
+        print("latent MSE:", 1/8*torch.sum((zexpert[0, :] - zhat[0, :]))**2)
+        print("action dist:", torch.norm(actions_robot[0, :] - actions_robot_expert[0, :]))
 
         # spoof agent actions, since they are overridden anyway.
         actions_agent = torch.zeros(env.num_envs, env.num_actions_agent, device=env.device, requires_grad=False)
-        obs_agent, obs_robot , _, _, rews_agent, rews_robot, dones, infos = env.step(actions_agent, actions_robot.detach())
+        obs_agent, obs_robot , _, privileged_obs_robot, rews_agent, rews_robot, dones, infos = env.step(actions_agent, actions_robot_expert.detach())
 
         if RECORD_FRAMES:
             if i % 2:

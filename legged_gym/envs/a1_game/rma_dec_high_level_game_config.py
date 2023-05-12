@@ -105,6 +105,7 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
         command_clipping = False        # if true: clip robot + agent commands to the ranges below
+        use_joypad = False
         class ranges:
             lin_vel_x = [-3.5, 3.5] #[-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [-1.0, 1.0]     # min max [m/s]
@@ -247,7 +248,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         #policy_class_name = 'ActorCritic'
         policy_class_name = 'ActorCriticGamesRMA'
         algorithm_class_name = 'PPO'
-        num_steps_per_env = 30 #24          # per iteration
+        num_steps_per_env = 10 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
