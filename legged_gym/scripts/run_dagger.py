@@ -37,7 +37,7 @@ from legged_gym.envs import *
 from legged_gym.utils import get_dec_args, task_registry
 # import torch
 
-def train(args):
+def run_dagger(args):
     print("[run_dagger] making the high-level environment")
     env, env_cfg = task_registry.make_dec_env(name=args.task, args=args)
     print("[run_dagger] making the DAGGER runner...")
@@ -47,7 +47,7 @@ def train(args):
     dagger_runner.learn(num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=init_at_random_ep_len)
 
 if __name__ == '__main__':
-    print("[train_dec_game] getting args...")
+    print("[run_dagger] getting args...")
     args = get_dec_args()
-    print("[train_dec_game] starting training setup..")
-    train(args)
+    print("[run_dagger] starting training setup..")
+    run_dagger(args)

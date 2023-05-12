@@ -217,7 +217,7 @@ class TaskRegistry():
                                                   evol_checkpoint=train_cfg.runner.evol_checkpoint_robot,
                                                   learn_checkpoint=train_cfg.runner.learn_checkpoint_robot)
             print(f"Loading ROBOT model from: {resume_path_robot}")
-            runner.load(path=resume_path_robot, load_optimizer=False)
+            runner.load(path=resume_path_robot, load_optimizer=False, reset_std=True)
         if resume_agent:
             # load previously trained model
             print("Agent [evoution] checkpoint: ", train_cfg.runner.evol_checkpoint_agent)
@@ -226,7 +226,7 @@ class TaskRegistry():
                                                   evol_checkpoint=train_cfg.runner.evol_checkpoint_agent,
                                                   learn_checkpoint=train_cfg.runner.learn_checkpoint_agent)
             print(f"Loading AGENT model from: {resume_path_agent}")
-            runner.load(path=resume_path_agent, load_optimizer=False)
+            runner.load(path=resume_path_agent, load_optimizer=False, reset_std=True)
         return runner, train_cfg
 
     def make_dec_env(self, name, args=None, env_cfg=None) -> Tuple[VecEnv, LeggedRobotCfg]:

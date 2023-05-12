@@ -20,13 +20,13 @@ class RMADecHighLevelGameCfg( BaseConfig ):
 
         # PHASE 1 INFO
         # num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-        # num_observations_agent = 4          # AGENT (CUBE)
+        # num_observations_agent = 4
         # num_privileged_obs_robot = None
         # num_privileged_obs_agent = None
 
         # PHASE 2 INFO
         num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-        num_observations_agent = 4          # AGENT (CUBE)
+        num_observations_agent = 4
         num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
         num_privileged_obs_agent = None
 
@@ -214,7 +214,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
     runner_class_name = 'DecGamePolicyRunner' # 'OnPolicyRunner'
 
     class policy:
-        init_noise_std = 0.5 #1.0
+        init_noise_std = 0.01 #0.5 #1.0
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
@@ -224,7 +224,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         RMA = True         # True uses the teacher estimator: z* = T(x^future)
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
         num_privilege_obs_RMA = 4*8   # i.e., 8-step future relative state
-        num_privilege_obs_estimator = 4*(8+1) + 3*8    # i.e., 8-step past rel-state and robot controls + present state
+        num_privilege_obs_estimator = 4*8 #4*(8+1) + 3*8    # i.e., 8-step past rel-state and robot controls + present state
         num_latent = 8          # i.e., embedding sz
 
     class algorithm:
@@ -247,7 +247,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         #policy_class_name = 'ActorCritic'
         policy_class_name = 'ActorCriticGamesRMA'
         algorithm_class_name = 'PPO'
-        num_steps_per_env = 10 #24          # per iteration
+        num_steps_per_env = 30 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
