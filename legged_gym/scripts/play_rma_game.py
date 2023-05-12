@@ -97,16 +97,15 @@ def play_rma_game(args):
 
         # actions_robot = dagger_runner.alg.actor_critic.estimate_actor(obs_robot.detach(), zhat[0].detach())
         actions_robot = policy_robot(obs_robot.detach(), zhat[0].detach())
-        zexpert = dagger_runner.alg.actor_critic.acquire_latent(privileged_obs_robot)
-        actions_robot_expert = dagger_runner.alg.actor_critic.RMA_actor(privileged_obs_robot.detach())
 
-
-        print("latent MSE:", 1/8*torch.sum((zexpert[0, :] - zhat[0, :]))**2)
-        print("action dist:", torch.norm(actions_robot[0, :] - actions_robot_expert[0, :]))
+        # zexpert = dagger_runner.alg.actor_critic.acquire_latent(privileged_obs_robot)
+        # actions_robot_expert = dagger_runner.alg.actor_critic.RMA_actor(privileged_obs_robot.detach())
+        # print("latent MSE:", 1/8*torch.sum((zexpert[0, :] - zhat[0, :]))**2)
+        # print("action dist:", torch.norm(actions_robot[0, :] - actions_robot_expert[0, :]))
 
         # spoof agent actions, since they are overridden anyway.
         actions_agent = torch.zeros(env.num_envs, env.num_actions_agent, device=env.device, requires_grad=False)
-        obs_agent, obs_robot , _, privileged_obs_robot, rews_agent, rews_robot, dones, infos = env.step(actions_agent, actions_robot_expert.detach())
+        obs_agent, obs_robot , _, privileged_obs_robot, rews_agent, rews_robot, dones, infos = env.step(actions_agent, actions_robot.detach())
 
         if RECORD_FRAMES:
             if i % 2:

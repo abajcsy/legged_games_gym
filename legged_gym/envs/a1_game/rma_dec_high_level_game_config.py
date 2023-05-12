@@ -225,7 +225,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         RMA = True         # True uses the teacher estimator: z* = T(x^future)
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
         num_privilege_obs_RMA = 4*8   # i.e., 8-step future relative state
-        num_privilege_obs_estimator = 4*8 #4*(8+1) + 3*8    # i.e., 8-step past rel-state and robot controls + present state
+        num_privilege_obs_estimator = 4*(8+1) + 3*8    # i.e., 8-step past rel-state and robot controls + present state
         num_latent = 8          # i.e., embedding sz
 
     class algorithm:
