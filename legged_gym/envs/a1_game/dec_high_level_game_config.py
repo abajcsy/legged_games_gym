@@ -11,15 +11,15 @@ class DecHighLevelGameCfg( BaseConfig ):
         robot_hl_dt = 0.2   # 5 Hz
         #robot_hl_dt = 1     # 1 Hz
 
-        num_envs = 3000 # 4096
+        num_envs = 1 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
         num_pred_steps = 50 #25  # number of steps to predict into the future
 
-        # num_observations_robot = 1
+        #num_observations_robot = 1
         # num_observations_robot = 1+16 # theta
-        num_observations_robot = 4      # GT observations: (x_rel, theta)
-        #num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
+        #num_observations_robot = 4      # GT observations: (x_rel, theta)
+        num_observations_robot = 20       # KF observations: (xhat_rel, Phat)
         # num_observations_robot = 4+num_pred_steps*num_actions_agent     # GT sanity check: (x_rel, agent_action0 ... agent_actionT)
         num_observations_agent = 4          # AGENT (CUBE)
         num_privileged_obs_robot = None
@@ -46,7 +46,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         fov_curriculum = False
         fov_levels = [6.28, 4.71, 3.14, 1.57, 1.20428] # 360, 270, 180, 90, 64 degrees
 
-        prey_curriculum = False
+        prey_curriculum = True
         prey_angs = [0.52, 1.04, 1.57, 2.4, 3.14] # prey's initial relative angle will be in [-prey_ang, prey_ang]
 
         obstacle_curriculum = False
@@ -93,6 +93,7 @@ class DecHighLevelGameCfg( BaseConfig ):
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
         command_clipping = False        # if true: clip robot + agent commands to the ranges below
+        use_joypad = True
         class ranges:
             lin_vel_x = [0, 3.5] #[-1.0, 1.0]     # min max [m/s]
             lin_vel_y = [0, 0] #[-1.0, 1.0]     # min max [m/s]
@@ -191,7 +192,7 @@ class DecHighLevelGameCfg( BaseConfig ):
             rest_offset = 0.0   # [m]
             bounce_threshold_velocity = 0.5 #0.5 [m/s]
             max_depenetration_velocity = 1.0
-            max_gpu_contact_pairs = 2**23 #2**24 -> needed for 8000 envs and more
+            max_gpu_contact_pairs = 2**15 #2**24 -> needed for 8000 envs and more
             default_buffer_size_multiplier = 5
             contact_collection = 2 # 0: never, 1: last sub-step, 2: all sub-steps (default=2)
 

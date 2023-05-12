@@ -21,8 +21,10 @@ from legged_gym.utils.math import quat_apply_yaw, wrap_to_pi, torch_rand_sqrt_fl
 from legged_gym.utils.helpers import class_to_dict, get_load_path
 from legged_gym.envs.base.legged_robot_config import LeggedRobotCfg
 from legged_gym.utils import task_registry
+from legged_gym.utils.joypad import Joypad
 from legged_gym.filters.kalman_filter import KalmanFilter
 from legged_gym.filters.ma_kalman_filter import MultiAgentKalmanFilter
+from threading import Thread
 #from legged_gym.filters.kf_torchfilter import UKFTorchFilter
 import sys
 
@@ -177,6 +179,11 @@ class DecHighLevelGame():
         self.fov_curr_idx = 0
         if self.cfg.robot_sensing.fov_curriculum:
             self.robot_full_fov[:] = self.cfg.robot_sensing.fov_levels[self.fov_curr_idx]
+            
+        if self.cfg.commands.use_joypad:
+            self._joypad = Joypad()
+            thread = Thread(target=self._joypad.listen)
+            thread.start()
 
         # if using a PREY curriculum, initialize it with starting prey relative angle range
         self.prey_curr_idx = 0
@@ -449,20 +456,24 @@ class DecHighLevelGame():
         for tstep in range(num_ll_steps):
 
             # simulate the other agent
+            # TODO: hack here the commands from the joystick
             if self.agent_dyn_type == "integrator":
                 command_agent = self._straight_line_command_agent()
             elif self.agent_dyn_type == "dubins":
-                output = self._weaving_command_agent(self.turn_or_straight_idx.clone(),
-                                                     self.first_turn.clone(),
-                                                     self.last_turn_tstep.clone(),
-                                                     self.last_straight_tstep.clone(),
-                                                     self.turn_direction_idx.clone())
-                command_agent = output[0]
-                self.turn_or_straight_idx = output[1]
-                self.first_turn = output[2]
-                self.last_turn_tstep = output[3]
-                self.last_straight_tstep = output[4]
-                self.turn_direction_idx = output[5]
+                if self.cfg.commands.use_joypad:
+                    command_agent = self._get_command_joy()
+                else:
+                    output = self._weaving_command_agent(self.turn_or_straight_idx.clone(),
+                                                         self.first_turn.clone(),
+                                                         self.last_turn_tstep.clone(),
+                                                         self.last_straight_tstep.clone(),
+                                                         self.turn_direction_idx.clone())
+                    command_agent = output[0]
+                    self.turn_or_straight_idx = output[1]
+                    self.first_turn = output[2]
+                    self.last_turn_tstep = output[3]
+                    self.last_straight_tstep = output[4]
+                    self.turn_direction_idx = output[5]
 
             # set the high level command in the low-level environment 
             self.ll_env.commands = ll_env_command_robot
@@ -527,6 +538,25 @@ class DecHighLevelGame():
         command_robot[:, 2] = 0
 
         return command_robot
+    
+    
+    def _get_command_joy(self):
+        command_agent = torch.zeros(self.num_envs, self.num_actions_agent,
+                                    device=self.device, requires_grad=False)
+        joypad_available = (time() - self._joypad.time_last_joy) < self._joypad.joypad_timeout
+        if (joypad_available):
+            print("Joy available")
+            lin_speed_x = self._joypad.forward_value_normalized *self.command_ranges["agent_lin_vel_x"][1] 
+            lin_speed_ang = self._joypad.angular_value_normalized *self.command_ranges["agent_ang_vel_yaw"][1] 
+            #print("lin speed", lin_speed_x)
+            #print("ang speed", lin_speed_ang)
+        else:
+            lin_speed_x = 0
+            lin_speed_ang = 0
+        command_agent[:,0] = lin_speed_x
+        command_agent[:,1] = lin_speed_ang
+        print(command_agent)
+        return command_agent
 
     def _turn_and_pursue_command_robot(self, command_robot):
         rel_pos_global = self.agent_pos[:, :3] - self.robot_states[:, :3]
@@ -1137,12 +1167,12 @@ class DecHighLevelGame():
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
         # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
-        # self.compute_observations_KF_robot(command_robot,
-        #                                    command_agent,
-        #                                    limited_fov=True,
-        #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
+        self.compute_observations_KF_robot(command_robot,
+                                           command_agent,
+                                           limited_fov=True,
+                                           sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
-        self.compute_observations_oracle_pred_robot()
+        #self.compute_observations_oracle_pred_robot()
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
