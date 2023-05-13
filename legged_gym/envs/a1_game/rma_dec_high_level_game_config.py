@@ -40,7 +40,7 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         agent_dyn_type = "dubins"   # options for agent's dynamics: "dubins" (u = linvel, angvel) or "integrator" (u = xvel, yvel)
         agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
         agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
-        # for WEAVING agent policy only
+        # for NAIEVE WEAVING agent policy only
         agent_turn_freq = [50, 100]                   # sample how long to turn (tsteps) from [min, max]
         agent_straight_freq = [100, 200]              # sample how long to keep straight (tsteps) from [min, max]
         randomize_init_turn_dir = True #False # True                           # if True, then initial turn going left or right is randomized
@@ -107,8 +107,8 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         command_clipping = False        # if true: clip robot + agent commands to the ranges below
         use_joypad = False
         class ranges:
-            lin_vel_x = [-3.5, 3.5] #[-1.0, 1.0]     # min max [m/s]
-            lin_vel_y = [-1.0, 1.0]     # min max [m/s]
+            lin_vel_x = [0., 3.0]     # min max [m/s]
+            lin_vel_y = [0., 0.]     # min max [m/s]
             ang_vel_yaw = [-2, 2] #[-3.14, 3.14]       # min max [rad/s]
             heading = [-3.14, 3.14]
             agent_lin_vel_x = [-1.8, 1.8] # min max [m/s]

@@ -406,6 +406,38 @@ class DecHighLevelGame():
         self.agent_vx_curriculum = curr_vx.repeat(self.num_envs, 1).reshape(self.num_envs, 5)
         self.agent_omega_curriculum = curr_omega.repeat(self.num_envs, 1).reshape(self.num_envs, 5)
 
+        # state for agent policy simulation -- COMPLEX WEAVING AGENT
+        # create a tensor which stores the action the agent should take at each timestep of the episode.
+        # the tensor is of shape:
+        #       [num_envs x episode_length (low-level timesteps) x num_agent_actions]
+        self.agent_policy_schedule = torch.zeros(self.num_envs,
+                                                 int(self.max_episode_length),
+                                                 self.num_actions_agent,
+                                                 device=self.device,
+                                                 requires_grad=False)
+        self.curr_agent_tstep = 0 # NOTE: this timer is "global" it just keeps increasing forever as the rollouts happen.
+        vmax = self.command_ranges["agent_lin_vel_x"][1]
+        vmin = self.command_ranges["agent_lin_vel_x"][0]
+        steermin = self.command_ranges["agent_ang_vel_yaw"][0]
+        steermax = self.command_ranges["agent_ang_vel_yaw"][1]
+        tensor_vels = torch.tensor([vmin,
+                                    vmin/2.,
+                                    0,
+                                    vmax/2.,
+                                    vmax],
+                                   device=self.device,
+                                   requires_grad=False)
+        tensor_steer = torch.tensor([steermin,
+                                     steermin/2.,
+                                     0,
+                                     steermax/2.,
+                                     steermax],
+                                    device=self.device,
+                                    requires_grad=False)
+        self.motion_primitives_tensor = torch.cartesian_prod(tensor_vels,
+                                                             tensor_steer)
+        self.num_motion_primitives = self.motion_primitives_tensor.shape[0]
+
         # state for agent policy simulation -- INTEGRATOR FIXED RANDOM VEL AGENT
         self.agent_command_scale = 1.2
 
@@ -498,17 +530,18 @@ class DecHighLevelGame():
                 if self.cfg.commands.use_joypad:
                     command_agent = self._get_command_joy()
                 else:
+                    command_agent = self._complex_weaving_command_agent(self.curr_agent_tstep)
                     # command_agent = self._brownian_motion_command_agent()
-                    output = self._weaving_command_agent(self.turn_or_straight_idx.clone(),
-                                                         self.last_turn_tstep.clone(),
-                                                         self.last_straight_tstep.clone(),
-                                                         self.turn_direction_idx.clone())
-                    command_agent = output[0]
-                    self.turn_or_straight_idx = output[1]
-                    self.last_turn_tstep = output[2]
-                    self.last_straight_tstep = output[3]
-                    self.turn_direction_idx = output[4]
-                    self.curr_agent_command = command_agent
+                    # output = self._weaving_command_agent(self.turn_or_straight_idx.clone(),
+                    #                                      self.last_turn_tstep.clone(),
+                    #                                      self.last_straight_tstep.clone(),
+                    #                                      self.turn_direction_idx.clone())
+                    # command_agent = output[0]
+                    # self.turn_or_straight_idx = output[1]
+                    # self.last_turn_tstep = output[2]
+                    # self.last_straight_tstep = output[3]
+                    # self.turn_direction_idx = output[4]
+                    # self.curr_agent_command = command_agent
 
 
             if self.cfg.robot_sensing.prey_policy_curriculum:
@@ -638,6 +671,18 @@ class DecHighLevelGame():
     def _random_straight_line_command_agent(self):
         """At the beginning of each episode, choose a random (vx, vy), and then agent executes this consistently."""
         command_agent = self.curr_agent_command.clone()
+        return command_agent
+
+    def _complex_weaving_command_agent(self, start_tstep, end_tstep=None):
+        """Complex time-parameterized agent weaving behavior."""
+        # make sure you are within the time range:
+        if end_tstep is not None:
+            lo = int(start_tstep % self.max_episode_length)
+            hi = int(end_tstep % self.max_episode_length)
+            command_agent = self.agent_policy_schedule[:, lo:hi, :]
+        else:
+            lo = int(start_tstep % self.max_episode_length)
+            command_agent = self.agent_policy_schedule[:, lo, :]
         return command_agent
 
     def _brownian_motion_command_agent(self):
@@ -937,6 +982,59 @@ class DecHighLevelGame():
 
         return future_rel_states_robot_frame, future_agent_states
 
+    def _predict_complex_weaving_command_agent(self, pred_hor):
+        """Predicts the COMPLEX weaving command of the agent and returns the ctrls"""
+
+        # agent commands in the agent's coordinate frame
+        future_agent_cmds_agent_frame = torch.zeros(self.num_envs,
+                                                    pred_hor,
+                                                    self.num_actions_agent,
+                                                    device=self.device,
+                                                    requires_grad=False)
+
+        # TODO: Note: assumes dubins car dynamics! state = (x,y,z,theta)
+        curr_agent_state = torch.cat((self.agent_pos.clone(),
+                                      self.agent_heading.unsqueeze(-1).clone()
+                                      ),
+                                     dim=-1)
+        # future agent state in tensor of shape: [num_envs x (N+1) x (x,y,z)]
+        future_agent_states = torch.zeros(self.num_envs,
+                                          pred_hor + 1,
+                                          self.num_agent_states,
+                                          device=self.device,
+                                          requires_grad=False)
+        future_agent_states[:, 0, :] = curr_agent_state[:, :3]  # only keep track of xyz
+
+        # future relative state w.r.t robot base frame assuming uR == 0 over prediction horizon.
+        #   4-dim relative state = (x, y, z, theta)
+        # future relative state in tensor of shape: [num_envs x (N+1) x (x,y,z,theta)_rel]
+        future_rel_states_robot_frame = torch.zeros(self.num_envs,
+                                                    pred_hor + 1,
+                                                    self.num_robot_states,
+                                                    device=self.device,
+                                                    requires_grad=False)
+        curr_rel_pos_global = (curr_agent_state[:, :3] - self.robot_states[:, :3]).clone()
+        curr_rel_pos_local = self.global_to_robot_frame(curr_rel_pos_global)
+        curr_rel_yaw_local = torch.atan2(curr_rel_pos_local[:, 1], curr_rel_pos_local[:, 0]).unsqueeze(-1)
+        curr_rel_state = torch.cat((curr_rel_pos_local, curr_rel_yaw_local), dim=-1)
+        future_rel_states_robot_frame[:, 0, :] = curr_rel_state
+
+        future_agent_cmds_agent_frame = self._complex_weaving_command_agent(self.curr_agent_tstep, self.curr_agent_tstep+pred_hor)
+
+        for tstep in range(pred_hor):
+            curr_agent_state = self.agent_dubins_car_dynamics(curr_agent_state,
+                                                              future_agent_cmds_agent_frame[:, tstep, :])
+            future_agent_states[:, tstep + 1, :] = curr_agent_state[:, :3]
+
+            # using the future state of the other agent (assuming the robot is standing still) get the relative position
+            future_rel_pos_global = (curr_agent_state[:, :3] - self.robot_states[:, :3]).clone()
+            future_rel_pos_local = self.global_to_robot_frame(future_rel_pos_global)
+            future_rel_yaw_local = torch.atan2(future_rel_pos_local[:, 1], future_rel_pos_local[:, 0]).unsqueeze(-1)
+            future_rel_state = torch.cat((future_rel_pos_local, future_rel_yaw_local), dim=-1)
+            future_rel_states_robot_frame[:, tstep + 1, :] = future_rel_state
+
+        return future_rel_states_robot_frame, future_agent_states
+
     def clip_command_robot(self, command_robot):
         """Clips the robot's commands"""
         # if self.num_actions_robot == 1:
@@ -1119,6 +1217,7 @@ class DecHighLevelGame():
 
         self.episode_length_buf += 1
         self.curr_episode_step += 1 # this is used to model the progress of "time" in the episode
+        self.curr_agent_tstep += 1 
 
         # compute observations, rewards, resets, ...
         self.check_termination()
@@ -1154,6 +1253,67 @@ class DecHighLevelGame():
         self.time_out_buf = self.episode_length_buf > self.max_episode_length # no terminal reward for time-outs
         self.reset_buf = self.capture_buf.clone()
         self.reset_buf |= self.time_out_buf
+
+    def _initialize_complex_weaving_command_agent(self, env_ids):
+        """Initializes the complex weaving command agent policy."""
+
+        print("[complex_weaving] Initializing the complex_weaving_command_agent...")
+
+        # get a random duration at which all motion primitives will be applied this episode
+        min_dur = 4 # 0.8 seconds
+        max_dur = 10 # 2 seconds
+        duration = np.random.randint(min_dur, max_dur, size=1)
+
+        # how many chunks to split episode time into
+        num_chunks = int(self.max_episode_length // duration)
+        remainder = int(self.max_episode_length % duration)
+
+        # get a random sequence of motion primitive indexes
+        rand_mp_seq = torch.randint(0,
+                                    self.num_motion_primitives,
+                                    (self.num_envs, num_chunks),
+                                    device=self.device, requires_grad=False)
+
+        # # get a random duration per each motion primitive chunk of time
+        # rand_duration = torch.randint(min_dur,
+        #                               max_dur,
+        #                               (self.num_envs, num_chunks),
+        #                               device=self.device,
+        #                               requires_grad=False)
+        # duration = torch.divide(rand_duration, torch.sum(rand_duration, dim=-1).unsqueeze(-1)) * self.max_episode_length
+        # duration = duration.int()           # make sure they are valid timesteps
+        # remainder = self.max_episode_length - torch.sum(duration, dim=-1)
+        # duration[:, 0] += remainder.int()       # add any remainder to the first timestep
+        #
+        # assert torch.all(torch.sum(duration, dim=-1) == self.max_episode_length)
+
+        counter = 0
+        # import pdb;
+        # pdb.set_trace()
+        for chunk_id in range(num_chunks):
+            mp_ids = rand_mp_seq[env_ids, chunk_id]     # shape: size of env_ids, with an index into the motion primitive per env
+            curr_motion_primitives = self.motion_primitives_tensor[mp_ids] # mp_per_env_tensor[env_ids, mp_ids]
+
+            vx = curr_motion_primitives[:, 0].repeat(duration[0]).view(duration[0], len(env_ids))
+            vsteer = curr_motion_primitives[:, 1].repeat(duration[0]).view(duration[0], len(env_ids))
+
+            self.agent_policy_schedule[env_ids, counter:counter+duration[0], 0] = torch.transpose(vx, 0, 1)
+            self.agent_policy_schedule[env_ids, counter:counter+duration[0], 1] = torch.transpose(vsteer, 0, 1)
+
+            # setup the angular velocity
+            counter += duration[0]
+
+        # populate the remainder of the episode with the last command
+        mp_ids = rand_mp_seq[env_ids, num_chunks-1]  # shape: size of env_ids, with an index into the motion primitive per env
+        curr_motion_primitives = self.motion_primitives_tensor[mp_ids]
+
+        vx = curr_motion_primitives[:, 0].repeat(remainder).view(remainder, len(env_ids))
+        vsteer = curr_motion_primitives[:, 1].repeat(remainder).view(remainder, len(env_ids))
+
+        self.agent_policy_schedule[env_ids, counter:counter + remainder, 0] = torch.transpose(vx, 0, 1)
+        self.agent_policy_schedule[env_ids, counter:counter + remainder, 1] = torch.transpose(vsteer, 0, 1)
+
+        print("==> Done!")
 
     def reset_idx(self, env_ids):
         """ Reset some environments.
@@ -1271,35 +1431,37 @@ class DecHighLevelGame():
             self.curr_agent_command[env_ids[moving_towards_robot_ids], :] *= -1.0
 
         elif self.agent_dyn_type == "dubins":
+            print("[reset_idx()] dubins...")
+            self._initialize_complex_weaving_command_agent(env_ids)
 
             # =========== DUBINS CAR -- Moving Agent Policy Setup ========= #
-            # reset simulated agent behavior variables
-            self.curr_agent_command[env_ids, :] = 0.
-            self.last_turn_tstep[env_ids, 0] = 1
-            self.last_straight_tstep[env_ids, 0] = 1
-            self.turn_or_straight_idx[env_ids, 0] = 0   # 0 == turn, 1 == straight
-            self.turn_direction_idx[env_ids, :] = torch.randint(0, 2, 
-                                                                (len(env_ids), 1), 
-                                                                dtype=torch.int32, 
-                                                                device=self.device, 
-                                                                requires_grad=False)    # 0 == turn left, 1 == turn right
-            if not self.cfg.env.randomize_init_turn_dir:
-                # if not randomizing initial turn direction, then always turn left first
-                self.turn_direction_idx[env_ids, :] *= 0
-
-            # choose a random turning frequency and straight frequency
-            self.curr_turn_freq[env_ids, :] = torch.randint(self.cfg.env.agent_turn_freq[0], 
-                                                            self.cfg.env.agent_turn_freq[1]+1, 
-                                                            (len(env_ids), 1), 
-                                                            dtype=torch.int32, 
-                                                            device=self.device, 
-                                                            requires_grad=False)
-            self.curr_straight_freq[env_ids, :] = torch.randint(self.cfg.env.agent_straight_freq[0], 
-                                                                self.cfg.env.agent_straight_freq[0]+1, 
-                                                                (len(env_ids), 1), 
-                                                                dtype=torch.int32, 
-                                                                device=self.device, 
-                                                                requires_grad=False)
+            # # reset simulated agent behavior variables
+            # self.curr_agent_command[env_ids, :] = 0.
+            # self.last_turn_tstep[env_ids, 0] = 1
+            # self.last_straight_tstep[env_ids, 0] = 1
+            # self.turn_or_straight_idx[env_ids, 0] = 0   # 0 == turn, 1 == straight
+            # self.turn_direction_idx[env_ids, :] = torch.randint(0, 2,
+            #                                                     (len(env_ids), 1),
+            #                                                     dtype=torch.int32,
+            #                                                     device=self.device,
+            #                                                     requires_grad=False)    # 0 == turn left, 1 == turn right
+            # if not self.cfg.env.randomize_init_turn_dir:
+            #     # if not randomizing initial turn direction, then always turn left first
+            #     self.turn_direction_idx[env_ids, :] *= 0
+            #
+            # # choose a random turning frequency and straight frequency
+            # self.curr_turn_freq[env_ids, :] = torch.randint(self.cfg.env.agent_turn_freq[0],
+            #                                                 self.cfg.env.agent_turn_freq[1]+1,
+            #                                                 (len(env_ids), 1),
+            #                                                 dtype=torch.int32,
+            #                                                 device=self.device,
+            #                                                 requires_grad=False)
+            # self.curr_straight_freq[env_ids, :] = torch.randint(self.cfg.env.agent_straight_freq[0],
+            #                                                     self.cfg.env.agent_straight_freq[0]+1,
+            #                                                     (len(env_ids), 1),
+            #                                                     dtype=torch.int32,
+            #                                                     device=self.device,
+            #                                                     requires_grad=False)
 
         else:
             print("[reset_idx()] ERROR: unsupported agent dynamics type.")
@@ -1769,8 +1931,10 @@ class DecHighLevelGame():
 
         if self.debug_viz:
             # get future states of the agent (for visualization)
+            # future_rel_states_robot_frame, future_agent_states = \
+            #     self._predict_weaving_command_agent(pred_hor=self.num_pred_steps)
             future_rel_states_robot_frame, future_agent_states = \
-                self._predict_weaving_command_agent(pred_hor=self.num_pred_steps)
+                self._predict_complex_weaving_command_agent(pred_hor=self.num_pred_steps)
             # update the visualization variables of agent history, ground-truth future, and predicted future
             self.ll_env.agent_state_hist = self.agent_state_hist # true history
             if use_pos_and_vel:

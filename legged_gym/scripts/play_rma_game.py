@@ -45,11 +45,11 @@ def play_rma_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 1
+    max_num_envs = 6
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
 
-    env_cfg.env.debug_viz = False
-    env_cfg.commands.use_joypad = True
+    env_cfg.env.debug_viz = True
+    env_cfg.commands.use_joypad = False
 
     # # prepare environment
     print("[play_rma_game] making environment...")
@@ -97,12 +97,12 @@ def play_rma_game(args):
         # actions_robot = dagger_runner.alg.actor_critic.estimate_actor(obs_robot.detach(), zhat[0].detach())
         actions_robot = policy_robot(obs_robot.detach(), zhat[0].detach())
 
-        zexpert = dagger_runner.alg.actor_critic.acquire_latent(privileged_obs_robot)
-        actions_robot_expert = dagger_runner.alg.actor_critic.RMA_actor(privileged_obs_robot.detach())
-
-        env_id = 0
-        print("(env 1) latent MSE:", 1/8*torch.sum((zexpert[env_id, :] - zhat[0, env_id, :]))**2)
-        print("(env 1) action dist:", torch.norm(actions_robot[0, :] - actions_robot_expert[0, :]))
+        # zexpert = dagger_runner.alg.actor_critic.acquire_latent(privileged_obs_robot)
+        # actions_robot_expert = dagger_runner.alg.actor_critic.RMA_actor(privileged_obs_robot.detach())
+        #
+        # env_id = 0
+        # print("(env 1) latent MSE:", 1/8*torch.sum((zexpert[env_id, :] - zhat[0, env_id, :]))**2)
+        # print("(env 1) action dist:", torch.norm(actions_robot[0, :] - actions_robot_expert[0, :]))
 
         # spoof agent actions, since they are overridden anyway.
         actions_agent = torch.zeros(env.num_envs, env.num_actions_agent, device=env.device, requires_grad=False)
