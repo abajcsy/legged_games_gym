@@ -679,7 +679,15 @@ class DecHighLevelGame():
         if end_tstep is not None:
             lo = int(start_tstep % self.max_episode_length)
             hi = int(end_tstep % self.max_episode_length)
-            command_agent = self.agent_policy_schedule[:, lo:hi, :]
+            if lo > hi: # if you wrapped around, then need extra bookkeeping
+                command_agent_end = self.agent_policy_schedule[:, lo:, :]
+                command_agent_start = self.agent_policy_schedule[:, :hi, :]
+                if hi != 0:
+                    command_agent = torch.cat((command_agent_end, command_agent_start), dim=1)
+                else: # catch corner case
+                    command_agent = command_agent_end
+            else:
+                command_agent = self.agent_policy_schedule[:, lo:hi, :]
         else:
             lo = int(start_tstep % self.max_episode_length)
             command_agent = self.agent_policy_schedule[:, lo, :]
@@ -986,12 +994,10 @@ class DecHighLevelGame():
         """Predicts the COMPLEX weaving command of the agent and returns the ctrls"""
 
         # agent commands in the agent's coordinate frame
-        future_agent_cmds_agent_frame = torch.zeros(self.num_envs,
-                                                    pred_hor,
-                                                    self.num_actions_agent,
-                                                    device=self.device,
-                                                    requires_grad=False)
+        future_agent_cmds_agent_frame = self._complex_weaving_command_agent(self.curr_agent_tstep,
+                                                                            self.curr_agent_tstep+pred_hor)
 
+        assert future_agent_cmds_agent_frame.shape[1] == pred_hor
         # TODO: Note: assumes dubins car dynamics! state = (x,y,z,theta)
         curr_agent_state = torch.cat((self.agent_pos.clone(),
                                       self.agent_heading.unsqueeze(-1).clone()
@@ -1019,7 +1025,6 @@ class DecHighLevelGame():
         curr_rel_state = torch.cat((curr_rel_pos_local, curr_rel_yaw_local), dim=-1)
         future_rel_states_robot_frame[:, 0, :] = curr_rel_state
 
-        future_agent_cmds_agent_frame = self._complex_weaving_command_agent(self.curr_agent_tstep, self.curr_agent_tstep+pred_hor)
 
         for tstep in range(pred_hor):
             curr_agent_state = self.agent_dubins_car_dynamics(curr_agent_state,
@@ -1257,11 +1262,13 @@ class DecHighLevelGame():
     def _initialize_complex_weaving_command_agent(self, env_ids):
         """Initializes the complex weaving command agent policy."""
 
-        print("[complex_weaving] Initializing the complex_weaving_command_agent...")
+        # print("[complex_weaving] Initializing the complex_weaving_command_agent...")
 
         # get a random duration at which all motion primitives will be applied this episode
-        min_dur = 4 # 0.8 seconds
-        max_dur = 10 # 2 seconds
+        # min_dur = 4 # 0.8 seconds
+        # max_dur = 10 # 2 seconds
+        min_dur = 5 # 1 seconds
+        max_dur = 15 # 3 seconds
         duration = np.random.randint(min_dur, max_dur, size=1)
 
         # how many chunks to split episode time into
@@ -1313,7 +1320,7 @@ class DecHighLevelGame():
         self.agent_policy_schedule[env_ids, counter:counter + remainder, 0] = torch.transpose(vx, 0, 1)
         self.agent_policy_schedule[env_ids, counter:counter + remainder, 1] = torch.transpose(vsteer, 0, 1)
 
-        print("==> Done!")
+        # print("==> Done!")
 
     def reset_idx(self, env_ids):
         """ Reset some environments.
@@ -1431,7 +1438,6 @@ class DecHighLevelGame():
             self.curr_agent_command[env_ids[moving_towards_robot_ids], :] *= -1.0
 
         elif self.agent_dyn_type == "dubins":
-            print("[reset_idx()] dubins...")
             self._initialize_complex_weaving_command_agent(env_ids)
 
             # =========== DUBINS CAR -- Moving Agent Policy Setup ========= #
@@ -1576,10 +1582,10 @@ class DecHighLevelGame():
         """ Computes observations of the robot
         """
         # PHASE 1
-        # self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=False)  # FUTURE OBS: (x^t, x^{t+1:t+N})
+        self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=False)  # FUTURE OBS: (x^t, x^{t+1:t+N})
 
         # PHASE 2
-        self.compute_observations_RMA_history_robot(use_pos_and_vel=False) # HISTORY OBS: (x^t, x^{t-1:t-N}, uR^{t-1:t-N})
+        #self.compute_observations_RMA_history_robot(use_pos_and_vel=False) # HISTORY OBS: (x^t, x^{t-1:t-N}, uR^{t-1:t-N})
 
         # sense_obstacles = self.cfg.terrain.fov_measure_heights
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
@@ -1824,8 +1830,10 @@ class DecHighLevelGame():
             future_rel_states_robot_frame, future_agent_states = \
                 self._predict_random_straight_line_command_agent(pred_hor=self.num_pred_steps)
         elif self.agent_dyn_type == "dubins":
+            # future_rel_states_robot_frame, future_agent_states = \
+            #     self._predict_weaving_command_agent(pred_hor=self.num_pred_steps)
             future_rel_states_robot_frame, future_agent_states = \
-                self._predict_weaving_command_agent(pred_hor=self.num_pred_steps)
+                self._predict_complex_weaving_command_agent(pred_hor=self.num_pred_steps)
 
         if add_noise:
             # add noise to the predicted states
