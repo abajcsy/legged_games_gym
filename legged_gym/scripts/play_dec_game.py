@@ -45,7 +45,7 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 1
+    max_num_envs = 3
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = True
 
@@ -59,7 +59,7 @@ def play_dec_game(args):
     # load policies of agent and robot
     evol_checkpoint = 0
     # learn_checkpoint = 1000
-    learn_checkpoint = 1600
+    learn_checkpoint = 1400
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = False
 
@@ -76,7 +76,9 @@ def play_dec_game(args):
 
     #train_cfg.runner.load_run = 'Apr28_09-17-01_' # policy with (xrel, upred^t:t:10)
 
-    train_cfg.runner.load_run = 'Apr30_18-18-17_' # policy with slower HL policy frequency
+    # train_cfg.runner.load_run = 'Apr30_18-18-17_' # policy with slower HL policy frequency
+
+    train_cfg.runner.load_run = 'May13_06-36-55_' #'May12_23-37-32_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint

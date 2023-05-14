@@ -18,17 +18,17 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         num_pred_steps = 8              # prediction length
         num_hist_steps = 8              # history length
 
-        # PHASE 1 INFO
-        num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-        num_observations_agent = 4
-        num_privileged_obs_robot = None
-        num_privileged_obs_agent = None
-
-        # # PHASE 2 INFO
-        # num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+        # # PHASE 1 INFO
+        # num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
         # num_observations_agent = 4
-        # num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        # num_privileged_obs_robot = None
         # num_privileged_obs_agent = None
+
+        # PHASE 2 INFO
+        num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+        num_observations_agent = 4
+        num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        num_privileged_obs_agent = None
 
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
@@ -216,13 +216,13 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
     runner_class_name = 'DecGamePolicyRunner' # 'OnPolicyRunner'
 
     class policy:
-        init_noise_std = 0.5 #0.01 #0.5 #1.0
+        init_noise_std = 0.01 #0.5 #1.0
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
 
         # ActorCriticGamesRMA: information about the estimator(s)
-        estimator = False   # True uses the learned estimator: zhat = E(x^history, uR^history)
+        estimator = True #False   # True uses the learned estimator: zhat = E(x^history, uR^history)
         RMA = True         # True uses the teacher estimator: z* = T(x^future)
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
         num_privilege_obs_RMA = 4*8   # i.e., 8-step future relative state
@@ -257,11 +257,11 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         save_learn_interval = 200  # check for potential saves every this many iterations
         save_evol_interval = 1
         # load and resume
-        resume_robot = False #True
+        resume_robot = True # False
         resume_agent = False
-        load_run = 'phase_1_policy' #'May04_12-15-56_' #'Apr03_15-16-53_' #'Mar27_13-40-43_' #'Mar09_19-33-14_'  # -1 = last run
+        load_run = 'phase_1_policy_v2' #'phase_1_policy' #'May04_12-15-56_' #'Apr03_15-16-53_' #'Mar27_13-40-43_' #'Mar09_19-33-14_'  # -1 = last run
         evol_checkpoint_robot = 0       
-        learn_checkpoint_robot = 1600   # -1 = last saved model
+        learn_checkpoint_robot = 1400   # -1 = last saved model
         evol_checkpoint_agent = 0
         learn_checkpoint_agent = 1400
         resume_path = None  # updated from load_run and chkpt

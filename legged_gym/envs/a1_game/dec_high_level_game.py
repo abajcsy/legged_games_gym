@@ -1265,8 +1265,8 @@ class DecHighLevelGame():
         # print("[complex_weaving] Initializing the complex_weaving_command_agent...")
 
         # get a random duration at which all motion primitives will be applied this episode
-        # min_dur = 4 # 0.8 seconds
-        # max_dur = 10 # 2 seconds
+        #min_dur = 4 # 0.8 seconds
+        #max_dur = 10 # 2 seconds
         min_dur = 5 # 1 seconds
         max_dur = 15 # 3 seconds
         duration = np.random.randint(min_dur, max_dur, size=1)
@@ -1582,10 +1582,10 @@ class DecHighLevelGame():
         """ Computes observations of the robot
         """
         # PHASE 1
-        self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=False)  # FUTURE OBS: (x^t, x^{t+1:t+N})
+        # self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=False)  # FUTURE OBS: (x^t, x^{t+1:t+N})
 
         # PHASE 2
-        #self.compute_observations_RMA_history_robot(use_pos_and_vel=False) # HISTORY OBS: (x^t, x^{t-1:t-N}, uR^{t-1:t-N})
+        self.compute_observations_RMA_history_robot(use_pos_and_vel=False) # HISTORY OBS: (x^t, x^{t-1:t-N}, uR^{t-1:t-N})
 
         # sense_obstacles = self.cfg.terrain.fov_measure_heights
         # self.compute_observations_pos_robot()             # OBS: (x_rel)

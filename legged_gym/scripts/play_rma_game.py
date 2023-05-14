@@ -65,7 +65,7 @@ def play_rma_game(args):
     train_cfg.runner.resume_robot = True # only load robot
     train_cfg.runner.resume_agent = False
 
-    train_cfg.runner.load_run = 'phase_2_policy'
+    train_cfg.runner.load_run = 'phase_2_policy_v2'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
