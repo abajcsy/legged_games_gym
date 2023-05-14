@@ -1582,10 +1582,10 @@ class DecHighLevelGame():
         """ Computes observations of the robot
         """
         # PHASE 1
-        # self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=False)  # FUTURE OBS: (x^t, x^{t+1:t+N})
+        self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=False)  # FUTURE OBS: (x^t, x^{t+1:t+N})
 
         # PHASE 2
-        self.compute_observations_RMA_history_robot(use_pos_and_vel=False) # HISTORY OBS: (x^t, x^{t-1:t-N}, uR^{t-1:t-N})
+        # self.compute_observations_RMA_history_robot(use_pos_and_vel=False) # HISTORY OBS: (x^t, x^{t-1:t-N}, uR^{t-1:t-N})
 
         # sense_obstacles = self.cfg.terrain.fov_measure_heights
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
