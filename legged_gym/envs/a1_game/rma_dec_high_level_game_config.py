@@ -106,15 +106,15 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
         command_clipping = False        # if true: clip robot + agent commands to the ranges below
-        use_joypad = False
+        use_joypad = True
         class ranges:
             lin_vel_x = [0., 3.0]     # min max [m/s]
             lin_vel_y = [0., 0.]     # min max [m/s]
             ang_vel_yaw = [-2, 2] #[-3.14, 3.14]       # min max [rad/s]
             heading = [-3.14, 3.14]
-            agent_lin_vel_x = [-1.8, 1.8] # min max [m/s]
-            agent_lin_vel_y = [-0.5, 0.5] # min max [m/s]
-            agent_ang_vel_yaw = [-1.0, 1.0] # min max [rad/s]
+            agent_lin_vel_x = [-3, 3] # min max [m/s]
+            agent_lin_vel_y = [-1, 1] # min max [m/s]
+            agent_ang_vel_yaw = [-2.0, 2.0] # min max [rad/s]
 
     class init_state:
         agent_pos = [0.0, 0.0, 0.3] # x, y, z (agent pos)
