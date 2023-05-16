@@ -180,6 +180,8 @@ class TaskRegistry():
             DAGGER: The created algorithm
             Dict: the corresponding config file
         """
+        
+        # This file makes heavy lifting of onpolicy dagger class
         # if no args passed get command line arguments
         if args is None:
             args = get_dec_args()
@@ -205,6 +207,11 @@ class TaskRegistry():
             log_dir = os.path.join(log_root, datetime.now().strftime('%b%d_%H-%M-%S') + '_' + train_cfg.runner.run_name)
 
         train_cfg_dict = class_to_dict(train_cfg)
+        # Call here POOnpolicydagger
+        #if train_cfg.partial_obs:
+        #    print("Using partial observability")
+        #    runner = POnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
+        #else:
         runner = OnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
         # save resume path before creating a new log_dir
         resume_robot = train_cfg.runner.resume_robot
@@ -228,7 +235,7 @@ class TaskRegistry():
             print(f"Loading AGENT model from: {resume_path_agent}")
             runner.load(path=resume_path_agent, load_optimizer=False, reset_std=True)
         return runner, train_cfg
-
+    
     def make_dec_env(self, name, args=None, env_cfg=None) -> Tuple[VecEnv, LeggedRobotCfg]:
         """ Creates an environment either from a registered namme or from the provided config file.
 

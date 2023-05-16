@@ -281,6 +281,7 @@ class DecHighLevelGame():
             self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
 
         self.num_robot_states = self.cfg.env.num_robot_states
+        self.num_future_robot_states = 4 # TODO: take the hardcoding away
         self.num_agent_states = self.cfg.env.num_agent_states
         self.rel_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_robot_states, device=self.device, dtype=torch.float)
         self.agent_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_agent_states, device=self.device, dtype=torch.float)
@@ -836,7 +837,7 @@ class DecHighLevelGame():
         # future relative state in tensor of shape: [num_envs x (N+1) x (x,y,z,theta)_rel]
         future_rel_states_robot_frame = torch.zeros(self.num_envs,
                                                 pred_hor + 1,
-                                                self.num_robot_states,
+                                                self.num_future_robot_states,
                                                 device=self.device,
                                                 requires_grad=False)
 
@@ -924,7 +925,7 @@ class DecHighLevelGame():
         # future relative state in tensor of shape: [num_envs x (N+1) x (x,y,z,theta)_rel]
         future_rel_states_robot_frame = torch.zeros(self.num_envs,
                                                 pred_hor + 1,
-                                                self.num_robot_states,
+                                                self.num_future_robot_states,
                                                 device=self.device,
                                                 requires_grad=False)
         curr_rel_pos_global = (curr_agent_state[:, :3] - self.robot_states[:, :3]).clone()
@@ -1016,7 +1017,7 @@ class DecHighLevelGame():
         # future relative state in tensor of shape: [num_envs x (N+1) x (x,y,z,theta)_rel]
         future_rel_states_robot_frame = torch.zeros(self.num_envs,
                                                     pred_hor + 1,
-                                                    self.num_robot_states,
+                                                    self.num_future_robot_states,
                                                     device=self.device,
                                                     requires_grad=False)
         curr_rel_pos_global = (curr_agent_state[:, :3] - self.robot_states[:, :3]).clone()
@@ -1576,6 +1577,7 @@ class DecHighLevelGame():
         # print("high level rewards + low-level rewards: ", self.rew_buf)
 
     def compute_privileged_observations_robot(self, command_robot, command_agent):
+        # TODO: ,aybe change if teacher is not getting perfect state
         self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=True)  # FUTURE OBS: (x^t, x^{t+1:t+N})
 
     def compute_observations_robot(self, command_robot, command_agent):
@@ -1593,11 +1595,13 @@ class DecHighLevelGame():
         # self.compute_observations_pos_angle_time_robot()    # OBS: (x_rel, yaw_rel, elapsed_t)
         # self.compute_observations_full_obs_robot()        # OBS: (x_rel, cos(yaw_rel), sin(yaw_rel), d_bool, v_bool)
         # self.compute_observations_limited_FOV_robot()     # OBS: (x_rel^{t:t-4}, cos_yaw^{t:t-4}, sin_yaw_rel^{t:t-4}, d_bool^{t:t-4}, v_bool^{t:t-4})
-        # self.compute_observations_state_hist_robot(limited_fov=True)          # OBS: (x_rel^{t:t-4}, v_bool^{t:t-4})
-        # self.compute_observations_KF_robot(command_robot,
-        #                                    command_agent,
-        #                                    limited_fov=True,
-        #                                    sense_obstacles=sense_obstacles)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
+        
+        #TODO: add history of KF observations
+        # PHASE 2 Partial Observability
+        #self.compute_observations_RMA_history_KF_robot(command_robot,
+        #                                               command_agent,
+        #                                               limited_fov=True,
+        #                                               sense_obstacles=False)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
@@ -1669,6 +1673,160 @@ class DecHighLevelGame():
                                         detected_bool.long(),
                                         visible_bool.long(),
                                         ), dim=-1)
+        
+        
+    def compute_observations_RMA_history_KF_robot(self, command_robot, command_agent, limited_fov=False, sense_obstacles=False):
+        """ Computes an history of observations of the robot using a Kalman Filter state estimate.
+            obs_buf is laid out as:
+
+            pi_R(x^t, x^t-1:t-N, uR^t-1:t-N, elapsed_t)     where the x is relative state in robot frame plus its covariance from a KF estimate
+                                                                   x^t-1:t-N is past relative state assuming robot is static
+                                                                   uR^t-1:t-N are past robot actions
+                                                                   elapsed_t (optional) is the elapsed time
+        """
+        actions_kf_r = command_robot[:, :self.num_actions_kf_r]
+
+        # ---- predict a priori state estimate  ---- #
+        if self.filter_type == "kf":
+            self.kf.predict(actions_kf_r)
+            rel_state_a_priori = self.kf.xhat
+        # elif self.filter_type == "ukf":
+        #     # import pdb; pdb.set_trace()
+        #     self.kf_og.predict(actions_kf_r)
+        #     rel_state_a_priori_og = self.kf_og.xhat
+        #     self.kf.predict(actions_kf_r)
+        #     rel_state_a_priori = self.kf.filter._belief_mean
+
+        if self.num_states_kf == 4:
+            rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
+            rel_pos_local = self.global_to_robot_frame(rel_pos_global)
+        #elif self.num_states_kf == 3:
+        #    rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
+        #    rel_pos_local = self.global_to_robot_frame(rel_pos_global)[:, :2]
+        else:
+            print("[DecHighLevelGame: reset_idx] ERROR: self.num_states_kf", self.num_states_kf, " is not supported.")
+            return
+
+        # from robot's POV, get its sensing
+        rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
+        rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
+
+        # simulate getting a noisy measurement
+        if limited_fov is True:
+            half_fov = self.robot_full_fov / 2.
+
+            # find environments where agent is visible
+            leq = torch.le(torch.abs(rel_yaw_local), half_fov)
+            fov_bool = torch.any(leq, dim=1)
+            # fov_bool = torch.any(torch.abs(rel_yaw_local) <= half_fov, dim=1)
+            visible_env_ids = fov_bool.nonzero(as_tuple=False).flatten()
+        else:
+            # if full FOV, then always get measurement and do update
+            visible_env_ids = torch.arange(self.num_envs, device=self.device)
+        
+        # ---- perform Kalman update to only environments that can get measurements ---- #
+        if self.filter_type == "kf":
+            z = self.kf.sim_measurement(rel_state)
+            self.kf.correct(z, env_ids=visible_env_ids)
+            rel_state_a_posteriori = self.kf.xhat.clone()
+            covariance_a_posteriori = self.kf.P_tensor.clone()
+
+        # TODO: Hack for logging!
+        if limited_fov is True:
+            hidden_env_ids = (~fov_bool).nonzero(as_tuple=False).flatten()
+            z[hidden_env_ids, :] = 0
+
+        # pack observation buf (getting diagonal elements)
+        P_flattened = torch.diagonal(covariance_a_posteriori, offset=0, dim1=1, dim2=2) 
+        pos_scale = 0.1
+        scaled_rel_state_a_posteriori = rel_state_a_posteriori.clone() 
+        scaled_rel_state_a_posteriori[:, :-1] *= pos_scale # don't scale the angular dimension since it is already small
+
+        # Important part
+        current_state = torch.cat((scaled_rel_state_a_posteriori,
+                                   P_flattened
+                                   ), dim=-1)
+        
+        state_dim = current_state.shape[1]
+
+        self.true_obs_robot = torch.cat((rel_state,
+                                        torch.zeros(self.num_envs, P_flattened.shape[1], device=self.device)
+                                        ), dim=-1)
+        
+        self.obs_buf_robot = torch.cat((current_state,
+                                        self.rel_state_hist.reshape(self.num_envs, self.num_hist_steps*state_dim),
+                                        self.robot_commands_hist.reshape(self.num_envs, self.num_hist_steps*self.num_actions_robot)),
+                                        dim=-1)
+        
+        if self.debug_viz:
+            # get future states of the agent (for visualization)
+            # future_rel_states_robot_frame, future_agent_states = \
+            #     self._predict_weaving_command_agent(pred_hor=self.num_pred_steps)
+            future_rel_states_robot_frame, future_agent_states = \
+                self._predict_complex_weaving_command_agent(pred_hor=self.num_pred_steps)
+            # update the visualization variables of agent history, ground-truth future, and predicted future
+            self.ll_env.agent_state_hist = self.agent_state_hist # true history
+            #self.ll_env.agent_state_preds = next_agent_pos_global.unsqueeze(1) # predicted 1-step future
+            self.ll_env.agent_state_future = future_agent_states # true future
+
+        # update the history vectors:
+        #   rel state hist is of shape [num_envs x num_hist_steps x num_robot_states]
+        self.rel_state_hist = torch.cat((current_state.unsqueeze(1),
+                                        self.rel_state_hist[:, 0:self.num_hist_steps-1, :]), 
+                                        dim=1)
+        #   robot cmd hist is of shape [num_envs x num_hist_steps x num_robot_actions]
+        self.robot_commands_hist = torch.cat((self.robot_commands.unsqueeze(1),
+                                        self.robot_commands_hist[:, 0:self.num_hist_steps-1, :]), dim=1)
+        #   For debug visualization: update agent state history 
+        #   TODO: for now only using (x,y,z) components
+        self.agent_state_hist = torch.cat((self.agent_pos[:, :3].unsqueeze(1),
+                                        self.agent_state_hist[:, 0:self.num_hist_steps-1, :]),
+                                        dim=1)
+
+        # ------------------------------------------------------------------- #
+        # =========================== Book Keeping ========================== #
+        # ------------------------------------------------------------------- #
+        if self.save_kf_data:
+            # record real data
+            if self.real_traj is None:
+                self.real_traj = np.array([rel_state.cpu().numpy()])
+            else:
+                self.real_traj = np.append(self.real_traj, [rel_state.cpu().numpy()], axis=0)
+
+            # record state estimate
+            if self.est_traj is None:
+                self.est_traj = np.array([rel_state_a_posteriori.cpu().numpy()])
+            else:
+                self.est_traj = np.append(self.est_traj, [rel_state_a_posteriori.cpu().numpy()], axis=0)
+
+            # record state covariance
+            if self.P_traj is None:
+                self.P_traj = np.array([covariance_a_posteriori.cpu().numpy()])
+            else:
+                self.P_traj = np.append(self.P_traj, [covariance_a_posteriori.cpu().numpy()], axis=0)
+
+            # record measurements
+            if self.z_traj is None:
+                self.z_traj = np.array([z.cpu().numpy()])
+            else:
+                self.z_traj = np.append(self.z_traj, [z.cpu().numpy()], axis=0)
+
+            if self.data_save_tstep % self.data_save_interval == 0: 
+                print("Saving state estimation trajectory at tstep ", self.data_save_tstep, "...")
+                now = datetime.now()
+                dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
+                filename = "kf_data_" + dt_string + "_" + str(self.data_save_tstep) + ".pickle"
+                data_dict = {"real_traj": self.real_traj,
+                                "est_traj": self.est_traj, 
+                                "z_traj": self.z_traj, 
+                                "P_traj": self.P_traj, 
+                                "kf": self.kf}
+                with open(filename, 'wb') as handle:
+                    pickle.dump(data_dict, handle)
+
+            # advance timestep
+            self.data_save_tstep += 1
+        # ------------------------------------------------------------------- #
 
     def compute_observations_KF_robot(self, command_robot, command_agent, limited_fov=False, sense_obstacles=False):
         """ Computes observations of the robot using a Kalman Filter state estimate.
@@ -1759,6 +1917,7 @@ class DecHighLevelGame():
         scaled_rel_state_a_posteriori = rel_state_a_posteriori.clone() 
         scaled_rel_state_a_posteriori[:, :-1] *= pos_scale # don't scale the angular dimension since it is already small
 
+        # Important part
         self.obs_buf_robot = torch.cat((scaled_rel_state_a_posteriori,
                                         P_flattened
                                         ), dim=-1)
