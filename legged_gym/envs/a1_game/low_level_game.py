@@ -76,6 +76,7 @@ class LowLevelGame(BaseTask):
         self.init_done = False
         self.aggregate_mode = 1
 
+        self.robot_goal_loc = None
         self.agent_state_hist = None
         self.agent_state_preds = None
         self.agent_state_future = None
@@ -966,20 +967,28 @@ class LowLevelGame(BaseTask):
         if self.terrain is None or not self.terrain.cfg.measure_heights:
             self.gym.clear_lines(self.viewer)
             self.gym.refresh_rigid_body_state_tensor(self.sim)
+            zero_vec = torch.zeros(self.num_envs, 1, device=self.device, requires_grad=False)
             for i in range(self.num_envs):
                 #just draw the robot's FOV
                 #self._draw_fov_rays(env_id=i)
                 #self._draw_world_frame(env_id=i)
+                if self.robot_goal_loc is not None:
+                    self._draw_robot_goal_loc(color_name='g', sphere_r=0.05)
+                    # draw the relative position between robot and agent, robot and goal
+                    base_pos = self.root_states[self.robot_indices[i], :3]
+                    agent_pos = self.root_states[self.agent_indices[i], :3]
+                    goal_pos = torch.cat((self.robot_goal_loc[i, :2], zero_vec[i]), dim=-1)
+                    self._draw_rel_pos(base_pos, agent_pos, env_id=i, color_name='y')  # draw rel robot pos to agent
+                    self._draw_rel_pos(base_pos, goal_pos, env_id=i, color_name='g')  # draw rel robot pos to goal
                 if self.agent_state_hist is not None:
                     self._draw_agent_states(self.agent_state_hist, color_name='r', sphere_r=0.02)
                 if self.agent_state_future is not None:
                     self._draw_agent_states(self.agent_state_future, color_name='y', sphere_r=0.02)
-                if self.agent_state_preds is not None:
-                    self._draw_agent_states(self.agent_state_preds, color_name='b', sphere_r=0.03)
-                if self.rel_state_preds is not None:
-                    self._draw_rel_state_preds_robot_POV(color_name='g', sphere_r=0.03)
+                # if self.agent_state_preds is not None:
+                #     self._draw_agent_states(self.agent_state_preds, color_name='b', sphere_r=0.03)
+                # if self.rel_state_preds is not None:
+                #     self._draw_rel_state_preds_robot_POV(color_name='g', sphere_r=0.03)
                 self._draw_robot_frame(env_id=i)
-                # self._draw_rel_pos(env_id=i)
             return
 
         # draw height lines
@@ -1016,6 +1025,26 @@ class LowLevelGame(BaseTask):
             self._draw_world_frame(env_id=i)
             #self._draw_robot_frame(env_id=i)
 
+    def _draw_robot_goal_loc(self, color_name='g', sphere_r=0.02):
+        """Draws the robot goal location."""
+        if color_name == 'r':
+            color = (1, 0, 0)
+        elif color_name == 'b':
+            color = (0, 0, 1)
+        elif color_name == 'p':
+            color = (1, 0, 1)
+        elif color_name == 'y':
+            color = (1, 1, 0)
+        elif color_name == 'g':
+            color = (0,1,0)
+        else:
+            color = (1, 1, 0)
+        sphere_geom = gymutil.WireframeSphereGeometry(sphere_r, 10, 10, None, color=color)
+        for i in range(self.num_envs):
+            goal_loc = self.robot_goal_loc[i, :]
+            sphere_pose = gymapi.Transform(gymapi.Vec3(goal_loc[0], goal_loc[1], 0.05), r=None)
+            gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
+
     def _draw_agent_states(self, agent_states, color_name='r', sphere_r=0.02):
         """Draws the agent states."""
         if color_name == 'r':
@@ -1035,6 +1064,12 @@ class LowLevelGame(BaseTask):
                 agent_state = agent_states[i, tstep, :]
                 sphere_pose = gymapi.Transform(gymapi.Vec3(agent_state[0], agent_state[1], 0.05), r=None)
                 gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
+
+        # for i in range(self.num_envs):
+        #     sphere_geom = gymutil.WireframeSphereGeometry(np.sqrt(0.08), 10, 10, None, color=(1, 0, 0))
+        #     sphere_pose = gymapi.Transform(
+        #         gymapi.Vec3(self.agent_state_future[i, 0, 0], self.agent_state_future[i, 0, 1], 0.1), r=None)
+        #     gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
 
     def _draw_rel_state_preds_robot_POV(self, color_name='r', sphere_r=0.02):
         """Draws the relative state predictions in the robot's POV"""
@@ -1064,20 +1099,26 @@ class LowLevelGame(BaseTask):
                 sphere_pose = gymapi.Transform(gymapi.Vec3(base_pos[0] + rel_pos_global[0, 0], base_pos[1] + rel_pos_global[0, 1], 0.05), r=None)
                 gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], sphere_pose)
 
-    def _draw_rel_pos(self, env_id):
+    def _draw_rel_pos(self, pos_xyz1, pos_xyz2, env_id, color_name='y'):
         """Draws the relative position in the robot's coordinate frame."""
-        base_pos = self.root_states[self.robot_indices[env_id], :3].clone()
-        agent_pos = self.root_states[self.agent_indices[env_id], :3].clone()
-        rel_pos_global = (agent_pos - base_pos)
+        if color_name == 'r':
+            color = gymapi.Vec3(1, 0, 0)
+        elif color_name == 'b':
+            color = gymapi.Vec3(0, 0, 1)
+        elif color_name == 'p':
+            color = gymapi.Vec3(1, 0, 1)
+        elif color_name == 'y':
+            color = gymapi.Vec3(1, 1, 0)
+        elif color_name == 'g':
+            color = gymapi.Vec3(0, 1, 0)
+        else:
+            color = gymapi.Vec3(1, 1, 0)
+        rel_pos_global = (pos_xyz2 - pos_xyz1)
         rel_pos_global = rel_pos_global.unsqueeze(0)
-        base_quat_global = self.root_states[self.robot_indices[env_id], 3:7].clone()
-        base_quat_global = base_quat_global.unsqueeze(0)
 
-        rel_pos_local = legged_gym.utils.math.quat_rotate(base_quat_global, rel_pos_global)
-
-        ps = gymapi.Vec3(base_pos[0], base_pos[1], base_pos[2])
-        pe = gymapi.Vec3(base_pos[0] + rel_pos_global[:, 0], base_pos[1] + rel_pos_global[:, 1], base_pos[2] + rel_pos_global[:, 2])
-        gymutil.draw_line(ps, pe, gymapi.Vec3(1, 1, 0), self.gym, self.viewer, self.envs[env_id])
+        ps = gymapi.Vec3(pos_xyz1[0], pos_xyz1[1], pos_xyz1[2])
+        pe = gymapi.Vec3(pos_xyz1[0] + rel_pos_global[:, 0], pos_xyz1[1] + rel_pos_global[:, 1], pos_xyz1[2] + rel_pos_global[:, 2])
+        gymutil.draw_line(ps, pe, color, self.gym, self.viewer, self.envs[env_id])
 
     def _draw_robot_frame(self, env_id):
         """Draws the robot frame."""

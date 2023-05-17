@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 # Copyright (c) 2021 ETH Zurich, Nikita Rudin
+import pdb
 
 from legged_gym import LEGGED_GYM_ROOT_DIR
 import os
@@ -38,19 +39,27 @@ from legged_gym.utils import get_dec_args, export_policy_as_jit, task_registry, 
 import numpy as np
 import torch
 
+from collections import deque
+import statistics
+import random
+
 from isaacgym import gymapi
 
 
 def play_rma_game(args):
+    # set the seed
+    torch.manual_seed(0)
+    random.seed(0)
+
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
     max_num_envs = 1
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
-
     env_cfg.env.debug_viz = False
     env_cfg.env.eval_time = True
     env_cfg.commands.use_joypad = True
+
 
     # # prepare environment
     print("[play_rma_game] making environment...")
@@ -61,6 +70,7 @@ def play_rma_game(args):
     obs_robot = env.get_observations_robot()
 
     # load policies of agent and robot
+    logging = False
     evol_checkpoint = 0
     learn_checkpoint = 1400
     train_cfg.runner.resume_robot = True # only load robot
@@ -74,15 +84,24 @@ def play_rma_game(args):
     train_cfg.runner.eval_time = env_cfg.env.eval_time
 
     dagger_runner, train_cfg = task_registry.make_dagger_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
-    policy_robot = dagger_runner.get_estimator_inference_policy(device=env.device)
 
-    # camer info.
+    policy_robot_estimator = dagger_runner.get_estimator_inference_policy(device=env.device)
+    policy_robot_rma = dagger_runner.get_inference_policy(device=env.device)
+
+    # camera info.
     RECORD_FRAMES = False
     MOVE_CAMERA = False
     camera_position = np.array(env_cfg.viewer.pos, dtype=np.float64)
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
+    
+    # LOGGING
+    ep_infos = []
+    rewbuffer_robot = deque(maxlen=100)
+    lenbuffer = deque(maxlen=100)
+    cur_reward_sum_robot = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
+    cur_episode_length = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
     
     # Get the estimator information
     h = torch.zeros((dagger_runner.alg_student.actor_critic.estimator.num_layers, env.num_envs,
@@ -92,7 +111,10 @@ def play_rma_game(args):
     hidden_state = (h, c)
     mask = torch.ones((env.num_envs,), device=env.device)
 
-    for i in range(10 * int(env.max_episode_length)):
+    for i in range(int(env.max_episode_length)):
+        if logging:
+            print("Iter ", i, "  /  ", int(env.max_episode_length))
+        
         hidden_state = (torch.einsum("ijk,j->ijk", hidden_state[0], mask),
                         torch.einsum("ijk,j->ijk", hidden_state[1], mask))    
 
@@ -104,11 +126,12 @@ def play_rma_game(args):
         # actions_robot = dagger_runner.alg.actor_critic.estimate_actor(obs_robot.detach(), zhat[0].detach())
         actions_robot = policy_robot(obs_robot.detach(), zhat[0].detach())
 
+
         # zexpert = dagger_runner.alg.actor_critic.acquire_latent(privileged_obs_robot)
-        # actions_robot_expert = dagger_runner.alg.actor_critic.RMA_actor(privileged_obs_robot.detach())
-        #
+        # actions_robot_expert = policy_robot_rma(privileged_obs_robot.detach())
         # env_id = 0
-        # print("(env 1) latent MSE:", 1/8*torch.sum((zexpert[env_id, :] - zhat[0, env_id, :]))**2)
+        # mse = 1/8*torch.sum((zexpert[env_id, :].detach() - zhat[0, env_id, :].detach()))**2
+        # print("(env 1) latent MSE:", mse)
         # print("(env 1) action dist:", torch.norm(actions_robot[0, :] - actions_robot_expert[0, :]))
 
         # spoof agent actions, since they are overridden anyway.
@@ -117,6 +140,7 @@ def play_rma_game(args):
         
         # mask out finished envs
         mask = ~dones
+
 
         if RECORD_FRAMES:
             if i % 2:
@@ -127,6 +151,23 @@ def play_rma_game(args):
         if MOVE_CAMERA:
             camera_position += camera_vel * env.dt
             env.set_camera(camera_position, camera_position + camera_direction)
+
+        # Book keeping
+        if logging:
+            if 'episode' in infos:
+                ep_infos.append(infos['episode'])
+                cur_reward_sum_robot += rews_robot
+            cur_episode_length += 1
+            new_ids = (dones > 0).nonzero(as_tuple=False)
+            rewbuffer_robot.extend(cur_reward_sum_robot[new_ids][:, 0].cpu().numpy().tolist())
+            lenbuffer.extend(cur_episode_length[new_ids][:, 0].cpu().numpy().tolist())
+            cur_reward_sum_robot[new_ids] = 0
+            cur_episode_length[new_ids] = 0
+
+    if logging:
+        log_str = f"""{'Mean reward (robot):':>{35}} {statistics.mean(rewbuffer_robot):.2f}\n"""
+        log_str += f"""{'Mean episode length:':>{35}} {statistics.mean(lenbuffer):.2f}\n"""
+        print(log_str)
 
 if __name__ == '__main__':
     args = get_dec_args()
