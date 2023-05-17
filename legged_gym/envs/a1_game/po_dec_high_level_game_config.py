@@ -10,9 +10,10 @@ class PORMADecHighLevelGameCfg( BaseConfig ):
         debug_viz = False
         robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
 
-        num_envs = 4096 # 4096
+        num_envs = 20 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
+        eval_time = False
         
         num_priv_robot_states = 4            # x = (px, py, pz, theta)
         num_robot_states = 8            # x = (px, py, pz, theta, sx, sy, sz, st)
@@ -111,12 +112,12 @@ class PORMADecHighLevelGameCfg( BaseConfig ):
     class commands: # note: commands and actions are the same for the high-level policy
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
-        command_clipping = False        # if true: clip robot + agent commands to the ranges below
+        command_clipping = True        # if true: clip robot + agent commands to the ranges below
         use_joypad = False
         class ranges:
-            lin_vel_x = [0., 3.0]     # min max [m/s]
+            lin_vel_x = [0., 1.0]     # min max [m/s]
             lin_vel_y = [0., 0.]     # min max [m/s]
-            ang_vel_yaw = [-2, 2] #[-3.14, 3.14]       # min max [rad/s]
+            ang_vel_yaw = [-1, 1] #[-3.14, 3.14]       # min max [rad/s]
             heading = [-3.14, 3.14]
             agent_lin_vel_x = [-3, 3] # min max [m/s]
             agent_lin_vel_y = [-1, 1] # min max [m/s]
