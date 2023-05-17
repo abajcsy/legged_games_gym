@@ -284,6 +284,7 @@ class DecHighLevelGame():
             self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
 
         self.num_robot_states = self.cfg.env.num_robot_states
+        self.num_priv_robot_states = self.cfg.env.num_priv_robot_states
         self.num_future_robot_states = 4 # TODO: take the hardcoding away
         self.num_agent_states = self.cfg.env.num_agent_states
         self.rel_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_robot_states, device=self.device, dtype=torch.float)
