@@ -231,6 +231,9 @@ class DecHighLevelGame():
         # self.num_obs_encoded_robot = self.cfg.env.num_obs_encoded_robot
         # self.embedding_sz_robot = self.cfg.env.embedding_sz_robot
         self.num_privileged_obs_robot = self.cfg.env.num_privileged_obs_robot
+        # TODO: if condition on partial observability
+        self.num_privileged_obs_priv_robot = self.cfg.env.num_privileged_obs_priv_robot
+        self.num_obs_priv_robot = self.cfg.env.num_observations_priv_robot
         self.num_actions_robot = self.cfg.env.num_actions_robot
 
         # agent policy info
@@ -324,7 +327,7 @@ class DecHighLevelGame():
             # self.num_privileged_obs = self.num_obs
 
         if self.num_privileged_obs_robot is not None:
-            self.privileged_obs_buf_robot = torch.zeros(self.num_envs, self.num_privileged_obs_robot, device=self.device,
+            self.privileged_obs_buf_robot = torch.zeros(self.num_envs, self.num_privileged_obs_priv_robot, device=self.device,
                                                   dtype=torch.float)
         else:
             self.privileged_obs_buf_robot = None
@@ -505,6 +508,10 @@ class DecHighLevelGame():
             command_robot = self.clip_command_robot(command_robot)
 
         # print("[CLIPPED] command robot: ", command_robot)
+        
+        if self.device == 'cpu':
+            command_robot = command_robot.to(self.device)
+            self.robot_commands = self.robot_commands.to(self.device)
 
         # NOTE: low-level policy requires 4D control
         # update the low-level simulator command since it deals with the robot
@@ -1587,7 +1594,7 @@ class DecHighLevelGame():
         # self.compute_observations_RMA_predictions_robot(add_noise=False, privileged=False)  # FUTURE OBS: (x^t, x^{t+1:t+N})
 
         # PHASE 2
-        self.compute_observations_RMA_history_robot(use_pos_and_vel=False) # HISTORY OBS: (x^t, x^{t-1:t-N}, uR^{t-1:t-N})
+        # self.compute_observations_RMA_history_robot(use_pos_and_vel=False) # HISTORY OBS: (x^t, x^{t-1:t-N}, uR^{t-1:t-N})
 
         # sense_obstacles = self.cfg.terrain.fov_measure_heights
         # self.compute_observations_pos_robot()             # OBS: (x_rel)
@@ -1598,10 +1605,10 @@ class DecHighLevelGame():
         
         #TODO: add history of KF observations
         # PHASE 2 Partial Observability
-        #self.compute_observations_RMA_history_KF_robot(command_robot,
-        #                                               command_agent,
-        #                                               limited_fov=True,
-        #                                               sense_obstacles=False)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
+        self.compute_observations_RMA_history_KF_robot(command_robot,
+                                                       command_agent,
+                                                       limited_fov=True,
+                                                       sense_obstacles=False)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
 
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 

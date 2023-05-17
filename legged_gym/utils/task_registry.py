@@ -35,7 +35,7 @@ import torch
 import numpy as np
 
 from rsl_rl.env import VecEnv
-from rsl_rl.runners import OnPolicyRunner, DecGamePolicyRunner, OnPolicyDagger
+from rsl_rl.runners import OnPolicyRunner, DecGamePolicyRunner, OnPolicyDagger, POnPolicyDagger
 
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 from .helpers import get_args, update_cfg_from_args, update_dec_cfg_from_args, class_to_dict, get_load_path, get_dec_load_path, set_seed, parse_sim_params
@@ -212,7 +212,13 @@ class TaskRegistry():
         #    print("Using partial observability")
         #    runner = POnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
         #else:
-        runner = OnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
+        
+        # GT Observation
+        #runner = OnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
+        
+        # Partial Observation
+        runner = POnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
+        
         # save resume path before creating a new log_dir
         resume_robot = train_cfg.runner.resume_robot
         resume_agent = train_cfg.runner.resume_agent
