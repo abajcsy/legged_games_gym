@@ -90,7 +90,7 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         #       'simple_weaving' it follows dubins' curves
         #       'complex_weaving' it follows random linear and angular velocity combinations
         #       'static' just stands still
-        agent_policy_type = 'complex_weaving'
+        agent_policy_type = 'simple_weaving'
         agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
         agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
 
@@ -289,6 +289,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         RMA = True         # True uses the teacher estimator: z* = T(x^future)
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
 
+        future_len = 8
         history_len = 8
         num_robot_states = 4
         num_robot_actions = 3
@@ -300,12 +301,12 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         # num_privilege_obs_estimator = num_robot_states*(history_len+1) + num_robot_actions*history_len    # i.e., 8-step past rel-state and robot controls + present state
 
         # # PREDICTION PHASE 1 or PHASE 2
-        num_privilege_obs_RMA = num_robot_states*history_len  # i.e., 8-step future relative state
+        num_privilege_obs_RMA = num_robot_states * future_len  # i.e., 8-step future relative state
         # num_privilege_obs_estimator = num_robot_states*2 + num_robot_actions
-        num_privilege_obs_estimator = num_robot_states*(history_len+1) + num_robot_actions*history_len    # i.e., 8-step past rel-state and robot controls + present state
+        num_privilege_obs_estimator = num_robot_states * (history_len + 1) + num_robot_actions * history_len    # i.e., 8-step past rel-state and robot controls + present state
 
         #  ===== [Navigation] ===== #
-        # num_privilege_obs_RMA = num_robot_states * history_len # only the 8-step future relative state is privileged (current state and goal is not)
+        # num_privilege_obs_RMA = num_robot_states * future_len # only the 8-step future relative state is privileged (current state and goal is not)
         # num_privilege_obs_estimator = num_robot_states * (history_len + 1) + num_robot_actions * history_len # the estimator treats only the 8-step past rel-state and robot controls + present state as privileged # TODO: FIX THIS IN ACTOR CRITIC RMA
 
     class algorithm:
