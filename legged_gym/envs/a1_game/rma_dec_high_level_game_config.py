@@ -9,15 +9,14 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         #   + 3 for relative xyz-state to point-agent
         debug_viz = False
         robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
-        eval_time = False
 
-        num_envs = 3000 # 4096
+        num_envs = 20 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
         num_robot_states = 4            # x = (px, py, pz, theta)
         num_agent_states = 3            # x = (px, py, pz)
         num_pred_steps = 8              # prediction length
-        num_hist_steps = 15              # history length
+        num_hist_steps = 8              # history length
 
         # interaction scenario options:
         #       'nav' if doing goal-reaching w/agent avoidance
@@ -291,7 +290,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
 
         future_len = 8
-        history_len = 15
+        history_len = 8
         num_robot_states = 4
         num_robot_actions = 3
         num_latent = 8          # i.e., embedding sz
@@ -330,7 +329,8 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         # policy_class_name = 'ActorCritic'
         policy_class_name = 'ActorCriticGamesRMA'
         algorithm_class_name = 'PPO'
-        robot_policy_type = None # Repeated, but what can you do
+        robot_policy_type = 'prediction_phase2'
+        eval_time = False
         num_steps_per_env = 10 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
@@ -341,7 +341,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         # load and resume
         resume_robot = True
         resume_agent = False
-        load_run = 'phase_1_policy_v3' #nav_phase_1_policy' #'phase_1_policy'  # -1 = last run
+        load_run = 'phase_1_policy_v2' #nav_phase_1_policy' #'phase_1_policy'  # -1 = last run
         evol_checkpoint_robot = 0       
         learn_checkpoint_robot = 1600   # -1 = last saved model
         evol_checkpoint_agent = 0

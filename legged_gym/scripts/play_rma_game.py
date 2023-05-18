@@ -57,7 +57,7 @@ def play_rma_game(args):
     max_num_envs = 1
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = False
-    env_cfg.env.eval_time = True
+    train_cfg.runner.eval_time = True
     env_cfg.commands.use_joypad = True
 
 
@@ -75,19 +75,18 @@ def play_rma_game(args):
     learn_checkpoint = 1600
     train_cfg.runner.resume_robot = True # only load robot
     train_cfg.runner.resume_agent = False
-    train_cfg.runner.robot_policy_type = env_cfg.env.robot_policy_type
+    #train_cfg.runner.robot_policy_type = env_cfg.env.robot_policy_type
 
     train_cfg.policy.estimator = True
     train_cfg.policy.RMA = False
 
-    # train_cfg.runner.load_run = 'phase_2_policy_v3'
+    train_cfg.runner.load_run = 'phase_2_policy_v3'
     # train_cfg.runner.load_run = 'ph2_lstm1_fullHist_simpleWeave'
     #train_cfg.runner.load_run = 'phase_2_policy_lstm'
-    train_cfg.runner.load_run = 'May17_07-44-28_'
+    #train_cfg.runner.load_run = 'May17_07-44-28_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
-    train_cfg.runner.eval_time = env_cfg.env.eval_time
 
     dagger_runner, train_cfg = task_registry.make_dagger_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
 

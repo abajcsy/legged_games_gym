@@ -208,6 +208,7 @@ class TaskRegistry():
 
         train_cfg_dict = class_to_dict(train_cfg)
         # Call here POOnpolicydagger
+        
         if train_cfg.runner.robot_policy_type == 'po_prediction_phase2':
             runner = POnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
         elif train_cfg.runner.robot_policy_type == 'prediction_phase2':

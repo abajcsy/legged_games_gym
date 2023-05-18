@@ -283,6 +283,8 @@ class DecHighLevelGame():
         # self.embedding_sz_robot = self.cfg.env.embedding_sz_robot
         self.num_privileged_obs_robot = self.cfg.env.num_privileged_obs_robot
         # TODO: if condition on partial observability
+        self.num_robot_states = self.cfg.env.num_robot_states
+        self.num_agent_states = self.cfg.env.num_agent_states
         if self.robot_policy_type == 'po_prediction_phase2':
             self.num_privileged_obs_priv_robot = self.cfg.env.num_privileged_obs_priv_robot
             self.num_obs_priv_robot = self.cfg.env.num_observations_priv_robot
@@ -339,8 +341,6 @@ class DecHighLevelGame():
         if self.num_obs_robot > 3: # TODO: kind of a hack
             self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
 
-        self.num_robot_states = self.cfg.env.num_robot_states
-        self.num_agent_states = self.cfg.env.num_agent_states
         self.rel_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_robot_states, device=self.device, dtype=torch.float)
         self.agent_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_agent_states, device=self.device, dtype=torch.float)
         self.robot_commands_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_actions_robot, device=self.device, dtype=torch.float)
