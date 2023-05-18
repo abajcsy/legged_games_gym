@@ -54,7 +54,7 @@ def play_rma_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 1
+    max_num_envs = 2
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = True
     env_cfg.commands.use_joypad = False
@@ -70,12 +70,16 @@ def play_rma_game(args):
     # load policies of agent and robot
     logging = False
     evol_checkpoint = 0
-    learn_checkpoint = 150 #1600
+    learn_checkpoint = 1600
     train_cfg.runner.resume_robot = True # only load robot
     train_cfg.runner.resume_agent = False
 
+    train_cfg.policy.estimator = True
+    train_cfg.policy.RMA = False
+
     # train_cfg.runner.load_run = 'phase_2_policy_v3'
-    train_cfg.runner.load_run = 'May16_20-39-38_'
+    # train_cfg.runner.load_run = 'ph2_lstm1_fullHist_simpleWeave'
+    train_cfg.runner.load_run = 'phase_2_policy_lstm'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
@@ -108,7 +112,7 @@ def play_rma_game(args):
     hidden_state = (h, c)
 
     # for i in range(10 * int(env.max_episode_length)):
-    for i in range(int(env.max_episode_length)):
+    for i in range(10 * int(env.max_episode_length)):
         if logging:
             print("Iter ", i, "  /  ", int(env.max_episode_length))
 

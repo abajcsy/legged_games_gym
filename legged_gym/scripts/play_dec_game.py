@@ -89,6 +89,9 @@ def play_dec_game(args):
 
     # train_cfg.runner.load_run = 'nav_phase_1_policy' # navigation example
 
+    train_cfg.policy.estimator = False
+    train_cfg.policy.RMA = True
+
     # train_cfg.runner.load_run = 'reactive_policy'
     # train_cfg.runner.load_run = 'estimation_policy'
     train_cfg.runner.load_run = 'phase_1_policy_v3'
