@@ -171,8 +171,9 @@ class DecHighLevelGame():
         # setup the capture distance between two agents
         self.capture_dist = self.cfg.env.capture_dist
         # setup the goal reaching distance for the robot
-        self.goal_dist = self.cfg.env.goal_dist
-        self.collision_dist = self.cfg.env.collision_dist
+        if self.cfg.env.interaction_type == 'nav':
+            self.goal_dist = self.cfg.env.goal_dist
+            self.collision_dist = self.cfg.env.collision_dist
         self.MAX_REL_POS = 100.
 
         # setup sensing params about robot
@@ -231,8 +232,9 @@ class DecHighLevelGame():
 
         # interaction type
         self.interaction_type = self.cfg.env.interaction_type
-        self.agent_init_bias = self.cfg.env.agent_init_bias
-        self.agent_policy_bias = self.cfg.env.agent_policy_bias
+        if self.interaction_type == 'nav':
+            self.agent_init_bias = self.cfg.env.agent_init_bias
+            self.agent_policy_bias = self.cfg.env.agent_policy_bias
         self.robot_policy_type = self.cfg.env.robot_policy_type
         self.agent_policy_type = self.cfg.env.agent_policy_type
 
@@ -281,8 +283,13 @@ class DecHighLevelGame():
         # self.embedding_sz_robot = self.cfg.env.embedding_sz_robot
         self.num_privileged_obs_robot = self.cfg.env.num_privileged_obs_robot
         # TODO: if condition on partial observability
-        self.num_privileged_obs_priv_robot = self.cfg.env.num_privileged_obs_priv_robot
-        self.num_obs_priv_robot = self.cfg.env.num_observations_priv_robot
+        if self.robot_policy_type == 'po_prediction_phase2':
+            self.num_privileged_obs_priv_robot = self.cfg.env.num_privileged_obs_priv_robot
+            self.num_obs_priv_robot = self.cfg.env.num_observations_priv_robot
+            self.num_priv_robot_states = self.cfg.env.num_priv_robot_states
+            self.num_future_robot_states = self.num_priv_robot_states
+        else:
+            self.num_future_robot_states = self.num_robot_states
         self.num_actions_robot = self.cfg.env.num_actions_robot
 
         # agent policy info
@@ -333,8 +340,6 @@ class DecHighLevelGame():
             self.obs_buf_robot[:, self.pos_idxs_robot] = self.MAX_REL_POS
 
         self.num_robot_states = self.cfg.env.num_robot_states
-        self.num_priv_robot_states = self.cfg.env.num_priv_robot_states
-        self.num_future_robot_states = 4 # TODO: take the hardcoding away
         self.num_agent_states = self.cfg.env.num_agent_states
         self.rel_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_robot_states, device=self.device, dtype=torch.float)
         self.agent_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_agent_states, device=self.device, dtype=torch.float)
@@ -379,8 +384,12 @@ class DecHighLevelGame():
             # self.num_privileged_obs = self.num_obs
 
         if self.num_privileged_obs_robot is not None:
-            self.privileged_obs_buf_robot = torch.zeros(self.num_envs, self.num_privileged_obs_priv_robot, device=self.device,
-                                                  dtype=torch.float)
+            if self.robot_policy_type == 'po_prediction_phase2':
+                self.privileged_obs_buf_robot = torch.zeros(self.num_envs, self.num_privileged_obs_priv_robot, device=self.device,
+                                                      dtype=torch.float)
+            else:
+                self.privileged_obs_buf_robot = torch.zeros(self.num_envs, self.num_privileged_obs_robot, device=self.device,
+                                                      dtype=torch.float)
         else:
             self.privileged_obs_buf_robot = None
             # self.num_privileged_obs = self.num_obs
@@ -398,6 +407,7 @@ class DecHighLevelGame():
         self.est_traj = None
         self.P_traj = None 
         # self.num_states_kf = 3 # (x, y, dtheta)
+        # TODO: remove hardcoding
         self.num_states_kf = 4  # (x, y, z, dtheta)
         self.num_actions_kf_r = self.num_actions_robot 
         self.num_actions_kf_a = self.num_actions_agent
@@ -412,22 +422,6 @@ class DecHighLevelGame():
                                     state_type="pos_ang",
                                     device=self.device,
                                     dtype=torch.float)
-        # elif self.filter_type == "ukf":
-        #     self.kf = UKFTorchFilter(state_dim=self.num_states_kf,
-        #                             control_dim=self.num_actions_kf_r,
-        #                             observation_dim=self.num_states_kf,
-        #                             num_envs=self.num_envs,
-        #                             dt=self.filter_dt,
-        #                             device=self.device,
-        #                             ang_dims=-1,
-        #                             dyn_sys_type=self.dyn_sys_type)
-        #     self.kf_og = KalmanFilter(self.filter_dt,
-        #                             self.num_states_kf,
-        #                             self.num_actions_kf_r,
-        #                             self.num_envs,
-        #                             state_type="pos_ang",
-        #                             device=self.device,
-        #                             dtype=torch.float)
         elif self.filter_type == "makf":
             self.kf = MultiAgentKalmanFilter(self.filter_dt,
                                     self.num_states_kf,
@@ -1362,23 +1356,24 @@ class DecHighLevelGame():
             # setup the angular velocity
             counter += duration[0]
 
-        if self.agent_policy_bias:
-            # if we are biasing a subset of the policies to be "pursuit", set it up.
-            percent_unbiased_envs = 1.0
-            unbiasd_envs = torch.rand(self.num_envs, device=self.device, requires_grad=False)
-            unbiasd_envs[unbiasd_envs > percent_unbiased_envs] = 1
-            unbiasd_envs[unbiasd_envs <= percent_unbiased_envs] = 0
-            unbiasd_envs = unbiasd_envs.bool()
+        if self.interaction_type == 'nav':
+            if self.agent_policy_bias:
+                # if we are biasing a subset of the policies to be "pursuit", set it up.
+                percent_unbiased_envs = 1.0
+                unbiasd_envs = torch.rand(self.num_envs, device=self.device, requires_grad=False)
+                unbiasd_envs[unbiasd_envs > percent_unbiased_envs] = 1
+                unbiasd_envs[unbiasd_envs <= percent_unbiased_envs] = 0
+                unbiasd_envs = unbiasd_envs.bool()
 
-            # import pdb; pdb.set_trace()
-            rel_pos_agent = self.robot_states[~unbiasd_envs, :3] - self.agent_pos[~unbiasd_envs, :3]
-            rel_pos_agent_local = self.global_to_agent_frame(rel_pos_agent)
-            self.agent_policy_schedule[~unbiasd_envs, :, 0] = torch.clip(rel_pos_agent_local[:, 0],
-                                                                         min=self.command_ranges["agent_lin_vel_x"][0],
-                                                                         max=self.command_ranges["agent_lin_vel_x"][1])
-            self.agent_policy_schedule[~unbiasd_envs, :, 1] = torch.clip(rel_pos_agent_local[:, 1],
-                                                                         min=self.command_ranges["agent_ang_vel_yaw"][0],
-                                                                         max=self.command_ranges["agent_ang_vel_yaw"][1]) # TODO: THIS IS NOT CORRECT
+                # import pdb; pdb.set_trace()
+                rel_pos_agent = self.robot_states[~unbiasd_envs, :3] - self.agent_pos[~unbiasd_envs, :3]
+                rel_pos_agent_local = self.global_to_agent_frame(rel_pos_agent)
+                self.agent_policy_schedule[~unbiasd_envs, :, 0] = torch.clip(rel_pos_agent_local[:, 0],
+                                                                             min=self.command_ranges["agent_lin_vel_x"][0],
+                                                                             max=self.command_ranges["agent_lin_vel_x"][1])
+                self.agent_policy_schedule[~unbiasd_envs, :, 1] = torch.clip(rel_pos_agent_local[:, 1],
+                                                                             min=self.command_ranges["agent_ang_vel_yaw"][0],
+                                                                             max=self.command_ranges["agent_ang_vel_yaw"][1]) # TODO: THIS IS NOT CORRECT
 
         # populate the remainder of the episode with the last command
         mp_ids = rand_mp_seq[env_ids, num_chunks-1]  # shape: size of env_ids, with an index into the motion primitive per env
@@ -1723,18 +1718,15 @@ class DecHighLevelGame():
             self.compute_observations_RMA_predictions_robot(add_goal=add_goal,
                                                             add_noise=False,
                                                             privileged=False)
+        elif self.robot_policy_type == 'po_prediction_phase2':
+            self.compute_observations_RMA_history_KF_robot(command_robot,
+                                                           command_agent,
+                                                           limited_fov=True,
+                                                           sense_obstacles=False)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
         else:
             print("[ERROR compute_observations_robot()] unsupported robot policy type: ", self.robot_policy_type)
 
      
-        
-        #TODO: add in an if condition for this case
-        # PHASE 2 Partial Observability
-        self.compute_observations_RMA_history_KF_robot(command_robot,
-                                                       command_agent,
-                                                       limited_fov=True,
-                                                       sense_obstacles=False)   # OBS: (hat{x}_rel, hat{P}, measured_heights)
-
         # print("[DecHighLevelGame] self.obs_buf_robot: ", self.obs_buf_robot)
 
     def compute_observations_pos_robot(self):
@@ -1826,12 +1818,6 @@ class DecHighLevelGame():
         if self.filter_type == "kf":
             self.kf.predict(actions_kf_r)
             rel_state_a_priori = self.kf.xhat
-        # elif self.filter_type == "ukf":
-        #     # import pdb; pdb.set_trace()
-        #     self.kf_og.predict(actions_kf_r)
-        #     rel_state_a_priori_og = self.kf_og.xhat
-        #     self.kf.predict(actions_kf_r)
-        #     rel_state_a_priori = self.kf.filter._belief_mean
 
         if self.num_states_kf == 4:
             rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
@@ -1918,155 +1904,6 @@ class DecHighLevelGame():
         self.agent_state_hist = torch.cat((self.agent_pos[:, :3].unsqueeze(1),
                                         self.agent_state_hist[:, 0:self.num_hist_steps-1, :]),
                                         dim=1)
-
-        # ------------------------------------------------------------------- #
-        # =========================== Book Keeping ========================== #
-        # ------------------------------------------------------------------- #
-        if self.save_kf_data:
-            # record real data
-            if self.real_traj is None:
-                self.real_traj = np.array([rel_state.cpu().numpy()])
-            else:
-                self.real_traj = np.append(self.real_traj, [rel_state.cpu().numpy()], axis=0)
-
-            # record state estimate
-            if self.est_traj is None:
-                self.est_traj = np.array([rel_state_a_posteriori.cpu().numpy()])
-            else:
-                self.est_traj = np.append(self.est_traj, [rel_state_a_posteriori.cpu().numpy()], axis=0)
-
-            # record state covariance
-            if self.P_traj is None:
-                self.P_traj = np.array([covariance_a_posteriori.cpu().numpy()])
-            else:
-                self.P_traj = np.append(self.P_traj, [covariance_a_posteriori.cpu().numpy()], axis=0)
-
-            # record measurements
-            if self.z_traj is None:
-                self.z_traj = np.array([z.cpu().numpy()])
-            else:
-                self.z_traj = np.append(self.z_traj, [z.cpu().numpy()], axis=0)
-
-            if self.data_save_tstep % self.data_save_interval == 0: 
-                print("Saving state estimation trajectory at tstep ", self.data_save_tstep, "...")
-                now = datetime.now()
-                dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
-                filename = "kf_data_" + dt_string + "_" + str(self.data_save_tstep) + ".pickle"
-                data_dict = {"real_traj": self.real_traj,
-                                "est_traj": self.est_traj, 
-                                "z_traj": self.z_traj, 
-                                "P_traj": self.P_traj, 
-                                "kf": self.kf}
-                with open(filename, 'wb') as handle:
-                    pickle.dump(data_dict, handle)
-
-            # advance timestep
-            self.data_save_tstep += 1
-        # ------------------------------------------------------------------- #
-
-    def compute_observations_KF_robot(self, command_robot, command_agent, limited_fov=False, sense_obstacles=False):
-        """ Computes observations of the robot using a Kalman Filter state estimate.
-            obs_buf is laid out as:
-
-            [s^t, P^t] if not sensing obstacles
-            [s^t, P^t, height_pts] if sensing obstalces
-
-            where: 
-                s^t is the Kalman Filter estimated relative position (x, y, z) and dtheta.
-                    of shape [num_envs, num_states]
-                P^t is a posteriori estimate covariance, flattened
-                    of shape [num_envs, num_states*num_states]
-                height_pts is a series of (x,y,z) points measuring the height of the terrain, flattened
-                    of shape [num_envs, num_fov_height_points*3]
-        """
-        actions_kf_r = command_robot[:, :self.num_actions_kf_r]
-        actions_kf_a = command_agent[:, :self.num_actions_kf_a]
-
-        # ---- predict a priori state estimate  ---- #
-        if self.filter_type == "kf":
-            self.kf.predict(actions_kf_r)
-            rel_state_a_priori = self.kf.xhat
-        # elif self.filter_type == "ukf":
-        #     # import pdb; pdb.set_trace()
-        #     self.kf_og.predict(actions_kf_r)
-        #     rel_state_a_priori_og = self.kf_og.xhat
-        #     self.kf.predict(actions_kf_r)
-        #     rel_state_a_priori = self.kf.filter._belief_mean
-
-        if self.num_states_kf == 4:
-            rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
-            rel_pos_local = self.global_to_robot_frame(rel_pos_global)
-        elif self.num_states_kf == 3:
-            rel_pos_global = (self.agent_pos[:, :3] - self.robot_states[:, :3]).clone()
-            rel_pos_local = self.global_to_robot_frame(rel_pos_global)[:, :2]
-        else:
-            print("[DecHighLevelGame: reset_idx] ERROR: self.num_states_kf", self.num_states_kf, " is not supported.")
-            return
-
-        # from robot's POV, get its sensing
-        rel_yaw_local = torch.atan2(rel_pos_local[:, 1], rel_pos_local[:, 0]).unsqueeze(-1)
-        rel_state = torch.cat((rel_pos_local, rel_yaw_local), dim=-1)
-
-        # simulate getting a noisy measurement
-        if limited_fov is True:
-            half_fov = self.robot_full_fov / 2.
-
-            # find environments where agent is visible
-            leq = torch.le(torch.abs(rel_yaw_local), half_fov)
-            fov_bool = torch.any(leq, dim=1)
-            # fov_bool = torch.any(torch.abs(rel_yaw_local) <= half_fov, dim=1)
-            visible_env_ids = fov_bool.nonzero(as_tuple=False).flatten()
-        else:
-            # if full FOV, then always get measurement and do update
-            visible_env_ids = torch.arange(self.num_envs, device=self.device)
-        
-        # ---- perform Kalman update to only environments that can get measurements ---- #
-        if self.filter_type == "kf":
-            z = self.kf.sim_measurement(rel_state)
-            self.kf.correct(z, env_ids=visible_env_ids)
-            rel_state_a_posteriori = self.kf.xhat.clone()
-            covariance_a_posteriori = self.kf.P_tensor.clone()
-        # elif self.filter_type == "ukf":
-        #     z = self.kf.sim_observations(states=rel_state)
-        #     self.kf.update(z[visible_env_ids, :], env_ids=visible_env_ids)
-        #     rel_state_a_posteriori = self.kf.filter._belief_mean.clone()
-        #     covariance_a_posteriori = self.kf.filter._belief_covariance.clone()
-        #     z_og = self.kf_og.sim_measurement(rel_state)
-        #     self.kf_og.correct(z, env_ids=visible_env_ids)
-        #     rel_state_a_posteriori_og = self.kf_og.xhat.clone()
-        #     covariance_a_posteriori_og = self.kf_og.P_tensor.clone()
-            # pdb.set_trace()
-        # --------------------------- #
-
-        # print("robot ctrl: ", actions_kf_r)
-        # print("real state:", rel_state)
-        # print("esimated state: ", self.kf.filter._belief_mean)
-
-        # TODO: Hack for logging!
-        if limited_fov is True:
-            hidden_env_ids = (~fov_bool).nonzero(as_tuple=False).flatten()
-            z[hidden_env_ids, :] = 0
-
-        # pack observation buf
-        P_flattened = torch.flatten(covariance_a_posteriori, start_dim=1)
-        pos_scale = 0.1
-        scaled_rel_state_a_posteriori = rel_state_a_posteriori.clone() 
-        scaled_rel_state_a_posteriori[:, :-1] *= pos_scale # don't scale the angular dimension since it is already small
-
-        # Important part
-        self.obs_buf_robot = torch.cat((scaled_rel_state_a_posteriori,
-                                        P_flattened
-                                        ), dim=-1)
-
-        self.true_obs_robot = torch.cat((rel_state,
-                                        torch.zeros(self.num_envs, P_flattened.shape[1], device=self.device)
-                                        ), dim=-1)
-
-        # add perceptive inputs if not blind
-        if sense_obstacles:
-            heights = torch.clip(self.ll_env.root_states[self.ll_env.robot_indices, 2].unsqueeze(1)
-                                 - 0.5 - self.ll_env.fov_measured_heights, -1, 1.) * self.obs_scales.height_measurements
-            self.obs_buf_robot = torch.cat((self.obs_buf_robot, heights), dim=-1)
 
         # ------------------------------------------------------------------- #
         # =========================== Book Keeping ========================== #

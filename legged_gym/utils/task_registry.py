@@ -208,16 +208,10 @@ class TaskRegistry():
 
         train_cfg_dict = class_to_dict(train_cfg)
         # Call here POOnpolicydagger
-        #if train_cfg.partial_obs:
-        #    print("Using partial observability")
-        #    runner = POnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
-        #else:
-        
-        # GT Observation
-        #runner = OnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
-        
-        # Partial Observation
-        runner = POnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
+        if train_cfg.runner.robot_policy_type == 'po_prediction_phase2':
+            runner = POnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
+        elif train_cfg.runner.robot_policy_type == 'prediction_phase2':
+            runner = OnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
         
         # save resume path before creating a new log_dir
         resume_robot = train_cfg.runner.resume_robot

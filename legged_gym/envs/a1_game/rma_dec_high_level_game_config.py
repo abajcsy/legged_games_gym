@@ -9,6 +9,7 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         #   + 3 for relative xyz-state to point-agent
         debug_viz = False
         robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
+        eval_time = False
 
         num_envs = 3000 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
@@ -329,6 +330,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         # policy_class_name = 'ActorCritic'
         policy_class_name = 'ActorCriticGamesRMA'
         algorithm_class_name = 'PPO'
+        robot_policy_type = None # Repeated, but what can you do
         num_steps_per_env = 10 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)

@@ -9,11 +9,10 @@ class PORMADecHighLevelGameCfg( BaseConfig ):
         #   + 3 for relative xyz-state to point-agent
         debug_viz = False
         robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
-
+        eval_time = False
         num_envs = 20 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
-        eval_time = False
         
         num_priv_robot_states = 4            # x = (px, py, pz, theta)
         num_robot_states = 8            # x = (px, py, pz, theta, sx, sy, sz, st)
@@ -21,27 +20,66 @@ class PORMADecHighLevelGameCfg( BaseConfig ):
         num_pred_steps = 8              # prediction length
         num_hist_steps = 8              # history length
 
-        # # PHASE 1 INFO
-        # num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-        # num_observations_agent = 4
-        # num_privileged_obs_robot = None
-        # num_privileged_obs_agent = None
+        
+        # interaction scenario options:
+        #       'nav' if doing goal-reaching w/agent avoidance
+        #       'game' pursuit-evasion interaction
+        interaction_type = 'game'
 
-        # PHASE 2 INFO
-        # TODO: hacky. This here are the defitinions for the two classes.
-        num_observations_priv_robot = num_priv_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-        num_observations_priv_agent = 4
-        num_privileged_obs_priv_robot = num_priv_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-        num_privileged_obs_agent = None
-        num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-        num_observations_agent = 8
-        num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        # robot policy type options:
+        #       'reaction' uses only current relative state
+        #       'estimation' uses history of relative state and robot actions
+        #       'prediction_phase1' uses privileged info about future relative state
+        #       'prediction_phase2' uses history of relative state and robot actions with privileged future predictions
+        robot_policy_type = 'po_prediction_phase2'
+        
+        
+        # ====== [Pursuit-Evasion Game] ====== #
+        # BASELINE - REACTION
+        if robot_policy_type == 'reaction':
+            num_observations_robot = num_robot_states
+            num_observations_agent = 4
+            num_privileged_obs_robot = None
+            num_privileged_obs_agent = None
+        # BASELINE - ESTIMATION
+        elif robot_policy_type == 'estimation':
+            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps
+            num_observations_agent = 4
+            num_privileged_obs_robot = None
+            num_privileged_obs_agent = None
+        # PREDICTION - PHASE 1
+        elif robot_policy_type == 'prediction_phase1':
+            num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+            num_observations_agent = 4
+            num_privileged_obs_robot = None
+            num_privileged_obs_agent = None
+        # PREDICTION - PHASE 2
+        elif robot_policy_type == 'prediction_phase2':
+            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+            num_observations_agent = 4
+            num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+            num_privileged_obs_agent = None
+        # PARTIAL OBSERVABILITY PREDICTION - PHASE 2
+        elif robot_policy_type == 'po_prediction_phase2':
+            num_observations_priv_robot = num_priv_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+            num_observations_priv_agent = 4
+            num_privileged_obs_priv_robot = num_priv_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+            num_privileged_obs_agent = None
+            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+            num_observations_agent = 8
+            num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
 
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
         send_BC_actions = True      # send optimal robot actions for the BC loss in the algorithm; TODO: need to clean up this var
         episode_length_s = 20       # episode length in seconds
         capture_dist = 0.8          # if the two agents are closer than this dist, they are captured
+        
+        # options for agent policy type:
+        #       'simple_weaving' it follows dubins' curves
+        #       'complex_weaving' it follows random linear and angular velocity combinations
+        #       'static' just stands still
+        agent_policy_type = 'complex_weaving'
 
         # simulated agent info
         agent_dyn_type = "dubins"   # options for agent's dynamics: "dubins" (u = linvel, angvel) or "integrator" (u = xvel, yvel)
@@ -112,12 +150,12 @@ class PORMADecHighLevelGameCfg( BaseConfig ):
     class commands: # note: commands and actions are the same for the high-level policy
         # num_robot_commands = 4        # default: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
         heading_command = False         # if true: compute ang vel command from heading error
-        command_clipping = True        # if true: clip robot + agent commands to the ranges below
+        command_clipping = False        # if true: clip robot + agent commands to the ranges below
         use_joypad = False
         class ranges:
-            lin_vel_x = [0., 1.0]     # min max [m/s]
+            lin_vel_x = [0., 3.0]     # min max [m/s]
             lin_vel_y = [0., 0.]     # min max [m/s]
-            ang_vel_yaw = [-1, 1] #[-3.14, 3.14]       # min max [rad/s]
+            ang_vel_yaw = [-3.14, 3.14] #[-3.14, 3.14]       # min max [rad/s]
             heading = [-3.14, 3.14]
             agent_lin_vel_x = [-3, 3] # min max [m/s]
             agent_lin_vel_y = [-1, 1] # min max [m/s]
@@ -253,9 +291,9 @@ class PORMADecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        #policy_class_name = 'ActorCritic'
         policy_class_name = 'ActorCriticGamesRMA'
         algorithm_class_name = 'PPO'
+        robot_policy_type = None # Repeated, but what can you do
         num_steps_per_env = 10 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)

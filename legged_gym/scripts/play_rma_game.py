@@ -75,6 +75,7 @@ def play_rma_game(args):
     learn_checkpoint = 1400
     train_cfg.runner.resume_robot = True # only load robot
     train_cfg.runner.resume_agent = False
+    train_cfg.runner.robot_policy_type = env_cfg.env.robot_policy_type
 
     #train_cfg.runner.load_run = '../../logs/dec_high_level_game/May17_07-44-28_'
     train_cfg.runner.load_run = 'May17_07-44-28_'
@@ -85,8 +86,7 @@ def play_rma_game(args):
 
     dagger_runner, train_cfg = task_registry.make_dagger_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
 
-    policy_robot_estimator = dagger_runner.get_estimator_inference_policy(device=env.device)
-    policy_robot_rma = dagger_runner.get_inference_policy(device=env.device)
+    action_policy_robot = dagger_runner.get_estimator_inference_policy(device=env.device)
 
     # camera info.
     RECORD_FRAMES = False
@@ -103,13 +103,21 @@ def play_rma_game(args):
     cur_reward_sum_robot = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
     cur_episode_length = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
     
+    if env_cfg.env.robot_policy_type == 'prediction_phase2':
+        policy = dagger_runner.alg
+    elif env_cfg.env.robot_policy_type == 'po_prediction_phase2':
+        policy = dagger_runner.alg_student
+    else:
+        raise IOError("Policy type not recognized")
+    
     # Get the estimator information
-    h = torch.zeros((dagger_runner.alg_student.actor_critic.estimator.num_layers, env.num_envs,
-                     dagger_runner.alg_student.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
-    c = torch.zeros((dagger_runner.alg_student.actor_critic.estimator.num_layers, env.num_envs,
-                     dagger_runner.alg_student.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
+    h = torch.zeros((policy.actor_critic.estimator.num_layers, env.num_envs,
+                     policy.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
+    c = torch.zeros((policy.actor_critic.estimator.num_layers, env.num_envs,
+                     policy.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
     hidden_state = (h, c)
     mask = torch.ones((env.num_envs,), device=env.device)
+    
 
     for i in range(int(env.max_episode_length)):
         if logging:
@@ -121,11 +129,8 @@ def play_rma_game(args):
 
         # get the estimator latent
         estimator_obs = obs_robot.clone().unsqueeze(0)
-        zhat, hidden_state = dagger_runner.alg_student.actor_critic.estimate_latent(estimator_obs, hidden_state)
-
-        # actions_robot = dagger_runner.alg.actor_critic.estimate_actor(obs_robot.detach(), zhat[0].detach())
-        actions_robot = policy_robot(obs_robot.detach(), zhat[0].detach())
-
+        zhat, hidden_state = policy.actor_critic.estimate_latent(estimator_obs, hidden_state)
+        actions_robot = action_policy_robot(obs_robot.detach(), zhat[0].detach())
 
         # zexpert = dagger_runner.alg.actor_critic.acquire_latent(privileged_obs_robot)
         # actions_robot_expert = policy_robot_rma(privileged_obs_robot.detach())
@@ -136,7 +141,7 @@ def play_rma_game(args):
 
         # spoof agent actions, since they are overridden anyway.
         actions_agent = torch.zeros(env.num_envs, env.num_actions_agent, device=env.device, requires_grad=False)
-        obs_agent, obs_robot , _, privileged_obs_robot, rews_agent, rews_robot, dones, infos = env.step(actions_agent, actions_robot.detach())
+        obs_agent, obs_robot , _, privileged_obs_robot, rews_agent, rews_robot, dones, infos = env.step(actions_agent.detach(), actions_robot.detach())
         
         # mask out finished envs
         mask = ~dones
