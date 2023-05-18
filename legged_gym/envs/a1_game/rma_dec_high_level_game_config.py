@@ -17,7 +17,7 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         num_robot_states = 4            # x = (px, py, pz, theta)
         num_agent_states = 3            # x = (px, py, pz)
         num_pred_steps = 8              # prediction length
-        num_hist_steps = 8              # history length
+        num_hist_steps = 15              # history length
 
         # interaction scenario options:
         #       'nav' if doing goal-reaching w/agent avoidance
@@ -44,7 +44,7 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         # num_privileged_obs_robot = None
         # num_privileged_obs_agent = None
 
-        # PREDICTION - PHASE 1
+        # # PREDICTION - PHASE 1
         # num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
         # num_observations_agent = 4
         # num_privileged_obs_robot = None
@@ -91,7 +91,7 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         #       'simple_weaving' it follows dubins' curves
         #       'complex_weaving' it follows random linear and angular velocity combinations
         #       'static' just stands still
-        agent_policy_type = 'simple_weaving'
+        agent_policy_type = 'complex_weaving'
         agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
         agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
 
@@ -291,7 +291,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
 
         future_len = 8
-        history_len = 8
+        history_len = 15
         num_robot_states = 4
         num_robot_actions = 3
         num_latent = 8          # i.e., embedding sz
@@ -336,10 +336,10 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
 
         # logging
-        save_learn_interval = 50  # check for potential saves every this many iterations
+        save_learn_interval = 200  # check for potential saves every this many iterations
         save_evol_interval = 1
         # load and resume
-        resume_robot = True #False
+        resume_robot = True
         resume_agent = False
         load_run = 'phase_1_policy_v3' #nav_phase_1_policy' #'phase_1_policy'  # -1 = last run
         evol_checkpoint_robot = 0       

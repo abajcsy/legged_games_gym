@@ -2015,7 +2015,7 @@ class DecHighLevelGame():
                 # update the visualization variables of agent history, ground-truth future, and predicted future
                 self.ll_env.agent_state_hist = self.agent_state_hist # true history
                 self.ll_env.agent_state_preds = future_agent_states # predicted future agent states (is the true future)
-                # self.ll_env.agent_state_future = future_agent_states  # true future (is the predicted future)
+                self.ll_env.agent_state_future = future_agent_states  # true future (is the predicted future)
                 self.ll_env.rel_state_preds = future_rel_states_robot_frame # predicted future relative states
                 self.ll_env.robot_state_at_pred_start = self.robot_states[:, :3].clone()
                 self.ll_env.rel_state_quat = self.ll_env.root_states[self.ll_env.robot_indices, 3:7].clone()
