@@ -54,7 +54,7 @@ def play_rma_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 2
+    max_num_envs = 1
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = False
     env_cfg.env.eval_time = True
@@ -82,7 +82,8 @@ def play_rma_game(args):
 
     # train_cfg.runner.load_run = 'phase_2_policy_v3'
     # train_cfg.runner.load_run = 'ph2_lstm1_fullHist_simpleWeave'
-    train_cfg.runner.load_run = 'phase_2_policy_lstm'
+    #train_cfg.runner.load_run = 'phase_2_policy_lstm'
+    train_cfg.runner.load_run = 'May17_07-44-28_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
@@ -134,7 +135,7 @@ def play_rma_game(args):
 
         # get the estimator latent
         estimator_obs = obs_robot.clone().unsqueeze(0)
-        zhat, hidden_state = policy.actor_critic.estimate_latent(estimator_obs, hidden_state)
+        zhat, hidden_state = policy.actor_critic.estimate_latent_lstm(estimator_obs, hidden_state)
         actions_robot = action_policy_robot(obs_robot.detach(), zhat[0].detach())
 
         # zexpert = dagger_runner.alg.actor_critic.acquire_latent(privileged_obs_robot)

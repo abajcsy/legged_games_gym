@@ -268,7 +268,7 @@ class PORMADecHighLevelGameCfgPPO( BaseConfig ):
 
         # ActorCriticGamesRMA: information about the estimator(s)
         estimator = True #False   # True uses the learned estimator: zhat = E(x^history, uR^history)
-        RMA = True         # True uses the teacher estimator: z* = T(x^future)
+        RMA = False         # True uses the teacher estimator: z* = T(x^future)
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
         num_privilege_obs_RMA = 4*8   # i.e., 8-step future relative state
         num_privilege_obs_estimator = 8*(8+1) + 3*8    # i.e., 8-step past rel-state and present state + robot controls history
