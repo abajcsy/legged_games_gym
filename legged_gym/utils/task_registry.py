@@ -35,7 +35,7 @@ import torch
 import numpy as np
 
 from rsl_rl.env import VecEnv
-from rsl_rl.runners import OnPolicyRunner, DecGamePolicyRunner, OnPolicyDagger
+from rsl_rl.runners import OnPolicyRunner, DecGamePolicyRunner, OnPolicyDagger, POnPolicyDagger
 
 from legged_gym import LEGGED_GYM_ROOT_DIR, LEGGED_GYM_ENVS_DIR
 from .helpers import get_args, update_cfg_from_args, update_dec_cfg_from_args, class_to_dict, get_load_path, get_dec_load_path, set_seed, parse_sim_params
@@ -180,6 +180,8 @@ class TaskRegistry():
             DAGGER: The created algorithm
             Dict: the corresponding config file
         """
+        
+        # This file makes heavy lifting of onpolicy dagger class
         # if no args passed get command line arguments
         if args is None:
             args = get_dec_args()
@@ -205,7 +207,12 @@ class TaskRegistry():
             log_dir = os.path.join(log_root, datetime.now().strftime('%b%d_%H-%M-%S') + '_' + train_cfg.runner.run_name)
 
         train_cfg_dict = class_to_dict(train_cfg)
-        runner = OnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
+        # Call here POOnpolicydagger
+        if train_cfg.runner.robot_policy_type == 'po_prediction_phase2':
+            runner = POnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
+        elif train_cfg.runner.robot_policy_type == 'prediction_phase2':
+            runner = OnPolicyDagger(env, train_cfg_dict, log_dir, device=args.rl_device)
+        
         # save resume path before creating a new log_dir
         resume_robot = train_cfg.runner.resume_robot
         resume_agent = train_cfg.runner.resume_agent
@@ -217,7 +224,8 @@ class TaskRegistry():
                                                   evol_checkpoint=train_cfg.runner.evol_checkpoint_robot,
                                                   learn_checkpoint=train_cfg.runner.learn_checkpoint_robot)
             print(f"Loading ROBOT model from: {resume_path_robot}")
-            runner.load(path=resume_path_robot, load_optimizer=False, reset_std=True)
+            runner.load(path=resume_path_robot, load_optimizer=False,
+                        reset_std=True, student_policy=train_cfg.runner.eval_time)
         if resume_agent:
             # load previously trained model
             print("Agent [evoution] checkpoint: ", train_cfg.runner.evol_checkpoint_agent)
@@ -228,7 +236,7 @@ class TaskRegistry():
             print(f"Loading AGENT model from: {resume_path_agent}")
             runner.load(path=resume_path_agent, load_optimizer=False, reset_std=True)
         return runner, train_cfg
-
+    
     def make_dec_env(self, name, args=None, env_cfg=None) -> Tuple[VecEnv, LeggedRobotCfg]:
         """ Creates an environment either from a registered namme or from the provided config file.
 

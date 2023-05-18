@@ -54,10 +54,12 @@ def play_rma_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 2
+    max_num_envs = 1
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
-    env_cfg.env.debug_viz = True
-    env_cfg.commands.use_joypad = False
+    env_cfg.env.debug_viz = False
+    env_cfg.env.eval_time = True
+    env_cfg.commands.use_joypad = True
+
 
     # # prepare environment
     print("[play_rma_game] making environment...")
@@ -73,21 +75,23 @@ def play_rma_game(args):
     learn_checkpoint = 1600
     train_cfg.runner.resume_robot = True # only load robot
     train_cfg.runner.resume_agent = False
+    train_cfg.runner.robot_policy_type = env_cfg.env.robot_policy_type
 
     train_cfg.policy.estimator = True
     train_cfg.policy.RMA = False
 
     # train_cfg.runner.load_run = 'phase_2_policy_v3'
     # train_cfg.runner.load_run = 'ph2_lstm1_fullHist_simpleWeave'
-    train_cfg.runner.load_run = 'phase_2_policy_lstm'
+    #train_cfg.runner.load_run = 'phase_2_policy_lstm'
+    train_cfg.runner.load_run = 'May17_07-44-28_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
+    train_cfg.runner.eval_time = env_cfg.env.eval_time
 
     dagger_runner, train_cfg = task_registry.make_dagger_runner(env=env, name=args.task, args=args, train_cfg=train_cfg)
 
-    policy_robot_estimator = dagger_runner.get_estimator_inference_policy(device=env.device)
-    policy_robot_rma = dagger_runner.get_inference_policy(device=env.device)
+    action_policy_robot = dagger_runner.get_estimator_inference_policy(device=env.device)
 
     # camera info.
     RECORD_FRAMES = False
@@ -96,30 +100,43 @@ def play_rma_game(args):
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
-
+    
     # LOGGING
     ep_infos = []
     rewbuffer_robot = deque(maxlen=100)
     lenbuffer = deque(maxlen=100)
     cur_reward_sum_robot = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
     cur_episode_length = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
-
+    
+    if env_cfg.env.robot_policy_type == 'prediction_phase2':
+        policy = dagger_runner.alg
+    elif env_cfg.env.robot_policy_type == 'po_prediction_phase2':
+        policy = dagger_runner.alg_student
+    else:
+        raise IOError("Policy type not recognized")
+    
     # Get the estimator information
-    h = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
-                     dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=False)
-    c = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
-                     dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=False)
+    h = torch.zeros((policy.actor_critic.estimator.num_layers, env.num_envs,
+                     policy.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
+    c = torch.zeros((policy.actor_critic.estimator.num_layers, env.num_envs,
+                     policy.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
     hidden_state = (h, c)
+    mask = torch.ones((env.num_envs,), device=env.device)
+    
 
     # for i in range(10 * int(env.max_episode_length)):
     for i in range(10 * int(env.max_episode_length)):
         if logging:
             print("Iter ", i, "  /  ", int(env.max_episode_length))
+        
+        hidden_state = (torch.einsum("ijk,j->ijk", hidden_state[0], mask),
+                        torch.einsum("ijk,j->ijk", hidden_state[1], mask))    
+
 
         # get the estimator latent
         estimator_obs = obs_robot.clone().unsqueeze(0)
-        zhat, hidden_state = dagger_runner.alg.actor_critic.estimate_latent_lstm(estimator_obs, hidden_state)
-        actions_robot = policy_robot_estimator(obs_robot.detach(), zhat[0].detach())
+        zhat, hidden_state = policy.actor_critic.estimate_latent_lstm(estimator_obs, hidden_state)
+        actions_robot = action_policy_robot(obs_robot.detach(), zhat[0].detach())
 
         # zexpert = dagger_runner.alg.actor_critic.acquire_latent(privileged_obs_robot)
         # actions_robot_expert = policy_robot_rma(privileged_obs_robot.detach())
@@ -131,10 +148,10 @@ def play_rma_game(args):
         # spoof agent actions, since they are overridden anyway.
         actions_agent = torch.zeros(env.num_envs, env.num_actions_agent, device=env.device, requires_grad=False)
         obs_agent, obs_robot , _, privileged_obs_robot, rews_agent, rews_robot, dones, infos = env.step(actions_agent.detach(), actions_robot.detach())
+        
+        # mask out finished envs
+        mask = ~dones
 
-        # reset the hidden states for the reset environments
-        hidden_state[0][:, dones, :] = 0
-        hidden_state[1][:, dones, :] = 0
 
         if RECORD_FRAMES:
             if i % 2:
