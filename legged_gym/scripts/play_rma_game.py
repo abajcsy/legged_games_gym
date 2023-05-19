@@ -58,8 +58,7 @@ def play_rma_game(args):
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = False
     train_cfg.runner.eval_time = True
-    env_cfg.commands.use_joypad = True
-
+    env_cfg.commands.use_joypad = False
 
     # # prepare environment
     print("[play_rma_game] making environment...")
@@ -72,7 +71,7 @@ def play_rma_game(args):
     # load policies of agent and robot
     logging = False
     evol_checkpoint = 0
-    learn_checkpoint = 1600
+    learn_checkpoint = 200
     train_cfg.runner.resume_robot = True # only load robot
     train_cfg.runner.resume_agent = False
     #train_cfg.runner.robot_policy_type = env_cfg.env.robot_policy_type

@@ -48,12 +48,10 @@ def collect_prey_data(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 1000
+    max_num_envs = 50
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = False
     env_cfg.env.capture_dist = 0 #THIS IS NEVER TRUE SO THEY WILL NEVER BE CAPTURED
-    env_cfg.env.agent_turn_freq = [50,150]
-    env_cfg.env.agent_straight_freq = [100,200]
 
     # prepare environment
     print("[collect_prey_data] making environment...")
@@ -68,7 +66,7 @@ def collect_prey_data(args):
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = True
 
-    train_cfg.runner.load_run = 'May08_22-48-07_'  # 5Hz, 8-step future, pi(x, x_future)
+    train_cfg.runner.load_run = 'reactive_policy'  # 5Hz, 8-step future, pi(x, x_future)
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
@@ -87,10 +85,12 @@ def collect_prey_data(args):
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
 
-
     # data saving info.
+    agent_state_data = None
     rel_state_data = None
+    rel_state_robot_frame_data = None
     num_sim_steps = int(env_cfg.env.episode_length_s / env_cfg.env.robot_hl_dt)
+    condition = "many_env_moving"
 
     for i in range(num_sim_steps):
         print("Collecting data at tstep: ", i, " / ", num_sim_steps, "...")
@@ -99,10 +99,16 @@ def collect_prey_data(args):
         agent_state = env.ll_env.root_states[env.ll_env.agent_indices, :3]
         robot_state = env.ll_env.root_states[env.ll_env.robot_indices, :3]
         rel_state = agent_state - robot_state
+        rel_state_local = env.global_to_robot_frame(rel_state)
+
         if rel_state_data is None:
+            agent_state_data = np.array(agent_state.unsqueeze(1).cpu().numpy())
             rel_state_data = np.array(rel_state.unsqueeze(1).cpu().numpy())
+            rel_state_robot_frame_data = np.array(rel_state_local.unsqueeze(1).cpu().numpy())
         else:
+            agent_state_data = np.append(agent_state_data, agent_state.unsqueeze(1).cpu().numpy(), axis=1)
             rel_state_data = np.append(rel_state_data, rel_state.unsqueeze(1).cpu().numpy(), axis=1)
+            rel_state_robot_frame_data = np.append(rel_state_robot_frame_data, rel_state_local.unsqueeze(1).cpu().numpy(), axis=1)
 
         # print("[play_dec_game] current obs_robot: ", obs_robot.detach())
         actions_agent = policy_agent(obs_agent.detach())
@@ -122,8 +128,11 @@ def collect_prey_data(args):
     print("DONE! Saving data...")
     now = datetime.now()
     dt_string = now.strftime("%d_%m_%Y-%H-%M-%S")
-    filename = LEGGED_GYM_ROOT_DIR + "/legged_gym/predictors/data/rel_state_data_" + str(max_num_envs) + "agents.pickle"
-    data_dict = {"rel_state_data": rel_state_data, 
+    f = condition + dt_string + ".pickle"
+    filename = LEGGED_GYM_ROOT_DIR + "/legged_gym/predictors/data/" + f
+    data_dict = {"agent_state_data": agent_state_data,
+                 "rel_state_data": rel_state_data,
+                 "rel_state_robot_frame_data": rel_state_robot_frame_data,
                  "dt": env_cfg.env.robot_hl_dt,
                  "traj_length_s": env_cfg.env.episode_length_s}
 

@@ -344,7 +344,10 @@ class DecHighLevelGame():
         self.rel_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_robot_states, device=self.device, dtype=torch.float)
         self.agent_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_agent_states, device=self.device, dtype=torch.float)
         self.robot_commands_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_actions_robot, device=self.device, dtype=torch.float)
-        self.robot_commands = torch.zeros(self.num_envs, self.num_actions_robot, dtype=torch.float, device=self.device, requires_grad=False) 
+        self.robot_commands = torch.zeros(self.num_envs, self.num_actions_robot, dtype=torch.float, device=self.device, requires_grad=False)
+
+        self.debug_agent_state_hist = torch.zeros(self.num_envs, self.num_hist_steps, self.num_agent_states,
+                                            device=self.device, dtype=torch.float)
 
         self.rew_buf_robot = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
 
@@ -2126,6 +2129,18 @@ class DecHighLevelGame():
                                             self.robot_commands_hist.reshape(self.num_envs, self.num_hist_steps*self.num_actions_robot)),
                                             dim=-1)
 
+            # # TODO: THIS IS FOR DEBUGGING ONLY!! REMOVE OTHERWISE
+            # agent_xyz = self.agent_pos.clone()
+            # agent_xyz -= self.ll_env.env_origins
+            # agent_xyz *= pos_scale
+            # self.obs_buf_robot = torch.cat((agent_xyz,
+            #                                 self.debug_agent_state_hist.reshape(self.num_envs, self.num_hist_steps*3)),
+            #                                 dim=-1)
+            #
+            # self.debug_agent_state_hist = torch.cat((agent_xyz[:, :3].unsqueeze(1),
+            #                                         self.debug_agent_state_hist[:, 0:self.num_hist_steps-1, :]),
+            #                                         dim=1)
+
         if self.debug_viz:
             # get future states of the agent (for visualization)
             if self.agent_policy_type == 'simple_weaving':
@@ -2462,7 +2477,7 @@ class DecHighLevelGame():
     def global_to_robot_frame(self, global_vec):
         """Transforms (xyz) global vector to robot's local coordinate frame."""
         robot_base_quat_global = self.ll_env.root_states[self.ll_env.robot_indices, 3:7].clone()
-        
+
         # robot_base_quat_global = self.ll_env.root_states[self.ll_env.robot_indices, 3:7].clone()
         # local_vec = quat_rotate(robot_base_quat_global, rel_pos_global) # quat_rotate -- coordinate system is rotated with respect to the point (?)
         # local_yaw = torch.atan2(local_vec[:, 1], local_vec[:, 0]).unsqueeze(-1)
