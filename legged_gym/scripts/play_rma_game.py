@@ -106,11 +106,11 @@ def play_rma_game(args):
     cur_episode_length = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
 
     # Get the estimator information
-    h = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
-                     dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=False)
-    c = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
-                     dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=False)
-    hidden_state = (h, c)
+    #h = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
+    #                 dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=False)
+    #c = torch.zeros((dagger_runner.alg.actor_critic.estimator.num_layers, env.num_envs,
+    #                 dagger_runner.alg.actor_critic.estimator.hidden_size), device=env.device, requires_grad=False)
+    #hidden_state = (h, c)
 
     # for i in range(10 * int(env.max_episode_length)):
     for i in range(10 * int(env.max_episode_length)):

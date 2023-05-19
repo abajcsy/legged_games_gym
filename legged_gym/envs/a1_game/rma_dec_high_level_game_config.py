@@ -10,7 +10,7 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         debug_viz = False
         robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
 
-        num_envs = 3000 # 4096
+        num_envs = 4096 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
         num_robot_states = 4            # x = (px, py, pz, theta)
