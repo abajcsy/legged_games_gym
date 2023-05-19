@@ -68,7 +68,7 @@ def play_dec_game(args):
     # load policies of agent and robot
     logging = False
     evol_checkpoint = 0
-    learn_checkpoint = 1600
+    learn_checkpoint = 1000
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = False
 
@@ -92,9 +92,9 @@ def play_dec_game(args):
     train_cfg.policy.estimator = False
     train_cfg.policy.RMA = True
 
-    # train_cfg.runner.load_run = 'reactive_policy'
+    train_cfg.runner.load_run = 'reactive_policy'
     # train_cfg.runner.load_run = 'estimation_policy'
-    train_cfg.runner.load_run = 'phase_1_policy_v3'
+    #train_cfg.runner.load_run = 'phase_1_policy_v3'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.learn_checkpoint_agent = learn_checkpoint
