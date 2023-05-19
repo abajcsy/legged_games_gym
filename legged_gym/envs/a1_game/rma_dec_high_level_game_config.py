@@ -29,32 +29,42 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         #       'prediction_phase1' uses privileged info about future relative state
         #       'prediction_phase2' uses history of relative state and robot actions with privileged future predictions
         robot_policy_type = 'prediction_phase2'
-
+        
+        
         # ====== [Pursuit-Evasion Game] ====== #
         # BASELINE - REACTION
-        # num_observations_robot = num_robot_states
-        # num_observations_agent = 4
-        # num_privileged_obs_robot = None
-        # num_privileged_obs_agent = None
-
+        if robot_policy_type == 'reaction':
+            num_observations_robot = num_robot_states
+            num_observations_agent = 4
+            num_privileged_obs_robot = None
+            num_privileged_obs_agent = None
         # BASELINE - ESTIMATION
-        # num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps
-        # num_observations_agent = 4
-        # num_privileged_obs_robot = None
-        # num_privileged_obs_agent = None
-
-        # # PREDICTION - PHASE 1
-        # num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-        # num_observations_agent = 4
-        # num_privileged_obs_robot = None
-        # num_privileged_obs_agent = None
-
+        elif robot_policy_type == 'estimation':
+            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps
+            num_observations_agent = 4
+            num_privileged_obs_robot = None
+            num_privileged_obs_agent = None
+        # PREDICTION - PHASE 1
+        elif robot_policy_type == 'prediction_phase1':
+            num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+            num_observations_agent = 4
+            num_privileged_obs_robot = None
+            num_privileged_obs_agent = None
         # PREDICTION - PHASE 2
-        num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-        num_observations_agent = 4
-        num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-        num_privileged_obs_agent = None
-        # ==================================== #
+        elif robot_policy_type == 'prediction_phase2':
+            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+            num_observations_agent = 4
+            num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+            num_privileged_obs_agent = None
+        # PARTIAL OBSERVABILITY PREDICTION - PHASE 2
+        elif robot_policy_type == 'po_prediction_phase2':
+            num_observations_priv_robot = num_priv_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+            num_observations_priv_agent = 4
+            num_privileged_obs_priv_robot = num_priv_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+            num_privileged_obs_agent = None
+            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+            num_observations_agent = 8
+            num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
 
         # ====== [Navigation] ====== #
         # PHASE 1 INFO
@@ -279,15 +289,26 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
     runner_class_name = 'DecGamePolicyRunner' # 'OnPolicyRunner'
 
     class policy:
-        init_noise_std = 0.01 #0.5 #0.01 #1.0
+        #robot_policy_type = 'prediction_phase1'
+        robot_policy_type = 'prediction_phase2'
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+        RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
 
         # ActorCriticGamesRMA: information about the estimator(s)
-        estimator = True   # True uses the learned estimator: zhat = E(x^history, uR^history)
-        RMA = True         # True uses the teacher estimator: z* = T(x^future)
-        RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
+        if robot_policy_type == 'estimation' or robot_policy_type == 'prediction_phase1':
+            estimator = False   # True uses the learned estimator: zhat = E(x^history, uR^history)
+            RMA = True         # True uses the teacher estimator: z* = T(x^future)
+            init_noise_std = 0.5 #0.01 #1.0
+        elif robot_policy_type == 'prediction_phase2' or robot_policy_type == 'po_prediction_phase2':
+            estimator = True   # True uses the learned estimator: zhat = E(x^history, uR^history)
+            RMA = True         # True uses the teacher estimator: z* = T(x^future)
+            init_noise_std = 0.01 #0.01 #1.0
+        else:
+            estimator = False   # True uses the learned estimator: zhat = E(x^history, uR^history)
+            RMA = False         # True uses the teacher estimator: z* = T(x^future)
+            init_noise_std = 0.5 
 
         future_len = 8
         history_len = 8
@@ -297,13 +318,16 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
 
         # ===== [Pursuit-Evasion Game] ===== #
         # # ESTIMATION baseline
-        # num_privilege_obs_RMA = num_robot_states*(history_len+1) + num_robot_actions*history_len  # i.e., 8-step future relative state
-        # num_privilege_obs_estimator = num_robot_states*(history_len+1) + num_robot_actions*history_len    # i.e., 8-step past rel-state and robot controls + present state
+        if robot_policy_type == 'estimation':
+            num_privilege_obs_RMA = num_robot_states*(history_len+1) + num_robot_actions*history_len  # i.e., 8-step future relative state
+            num_privilege_obs_estimator = None
+        elif robot_policy_type == 'prediction_phase1' or robot_policy_type == 'prediction_phase2':
+            num_privilege_obs_RMA = num_robot_states * future_len  # i.e., 8-step future relative state
+            # num_privilege_obs_estimator = num_robot_states*2 + num_robot_actions
+            num_privilege_obs_estimator = num_robot_states * (history_len + 1) + num_robot_actions * history_len    # i.e., 8-step past rel-state and robot controls + present state
+        
 
         # # PREDICTION PHASE 1 or PHASE 2
-        num_privilege_obs_RMA = num_robot_states * future_len  # i.e., 8-step future relative state
-        # num_privilege_obs_estimator = num_robot_states*2 + num_robot_actions
-        num_privilege_obs_estimator = num_robot_states * (history_len + 1) + num_robot_actions * history_len    # i.e., 8-step past rel-state and robot controls + present state
 
         #  ===== [Navigation] ===== #
         # num_privilege_obs_RMA = num_robot_states * future_len # only the 8-step future relative state is privileged (current state and goal is not)
@@ -326,10 +350,9 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        # policy_class_name = 'ActorCritic'
+        #policy_class_name = 'ActorCritic'
         policy_class_name = 'ActorCriticGamesRMA'
         algorithm_class_name = 'PPO'
-        robot_policy_type = 'prediction_phase2'
         eval_time = False
         num_steps_per_env = 10 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
@@ -339,7 +362,7 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         save_learn_interval = 200  # check for potential saves every this many iterations
         save_evol_interval = 1
         # load and resume
-        resume_robot = True
+        resume_robot = False
         resume_agent = False
         load_run = 'phase_1_policy_v2' #nav_phase_1_policy' #'phase_1_policy'  # -1 = last run
         evol_checkpoint_robot = 0       
