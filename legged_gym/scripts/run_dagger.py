@@ -42,6 +42,7 @@ def run_dagger(args):
     env, env_cfg = task_registry.make_dec_env(name=args.task, args=args)
     print("[run_dagger] making the DAGGER runner...")
     dagger_runner, train_cfg = task_registry.make_dagger_runner(env=env, name=args.task, args=args)
+    assert not train_cfg.policy.eval_time, "Cannot have eval time while training"
     print("[run_dagger] starting the supervised learning process...")
     init_at_random_ep_len = False
     dagger_runner.learn(num_learning_iterations=train_cfg.runner.max_iterations, init_at_random_ep_len=init_at_random_ep_len)

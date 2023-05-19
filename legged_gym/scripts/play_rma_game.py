@@ -57,7 +57,6 @@ def play_rma_game(args):
     max_num_envs = 1
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = False
-    train_cfg.runner.eval_time = True
     env_cfg.commands.use_joypad = False
 
     # # prepare environment
@@ -74,14 +73,14 @@ def play_rma_game(args):
     learn_checkpoint = 200
     train_cfg.runner.resume_robot = True # only load robot
     train_cfg.runner.resume_agent = False
-    #train_cfg.runner.robot_policy_type = env_cfg.env.robot_policy_type
 
     train_cfg.policy.estimator = True
     train_cfg.policy.RMA = False
+    train_cfg.policy.eval_time = True
 
-    train_cfg.runner.load_run = 'phase_2_policy_v3'
+    # train_cfg.runner.load_run = 'phase_2_policy_v3'
     # train_cfg.runner.load_run = 'ph2_lstm1_fullHist_simpleWeave'
-    #train_cfg.runner.load_run = 'phase_2_policy_lstm'
+    train_cfg.runner.load_run = 'phase_2_policy_v3'
     #train_cfg.runner.load_run = 'May17_07-44-28_'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
@@ -98,7 +97,7 @@ def play_rma_game(args):
     camera_vel = np.array([1., 1., 0.])
     camera_direction = np.array(env_cfg.viewer.lookat) - np.array(env_cfg.viewer.pos)
     img_idx = 0
-    
+
     # LOGGING
     ep_infos = []
     rewbuffer_robot = deque(maxlen=100)

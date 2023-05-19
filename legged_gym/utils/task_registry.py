@@ -226,7 +226,7 @@ class TaskRegistry():
                                                   learn_checkpoint=train_cfg.runner.learn_checkpoint_robot)
             print(f"Loading ROBOT model from: {resume_path_robot}")
             runner.load(path=resume_path_robot, load_optimizer=False,
-                        reset_std=True, student_policy=train_cfg.runner.eval_time)
+                        reset_std=True, student_policy=train_cfg.policy.eval_time)
         if resume_agent:
             # load previously trained model
             print("Agent [evoution] checkpoint: ", train_cfg.runner.evol_checkpoint_agent)

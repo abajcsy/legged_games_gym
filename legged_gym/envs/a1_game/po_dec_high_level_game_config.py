@@ -9,7 +9,6 @@ class PORMADecHighLevelGameCfg( BaseConfig ):
         #   + 3 for relative xyz-state to point-agent
         debug_viz = False
         robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
-        eval_time = False
         num_envs = 20 # 4096
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
@@ -265,10 +264,12 @@ class PORMADecHighLevelGameCfgPPO( BaseConfig ):
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
+        robot_policy_type = 'po_prediction_phase2'
+        eval_time = False
 
         # ActorCriticGamesRMA: information about the estimator(s)
-        estimator = True #False   # True uses the learned estimator: zhat = E(x^history, uR^history)
-        RMA = False         # True uses the teacher estimator: z* = T(x^future)
+        estimator = True   # True uses the learned estimator: zhat = E(x^history, uR^history)
+        RMA = True         # True uses the teacher estimator: z* = T(x^future)
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
         num_privilege_obs_RMA = 4*8   # i.e., 8-step future relative state
         num_privilege_obs_estimator = 8*(8+1) + 3*8    # i.e., 8-step past rel-state and present state + robot controls history
@@ -293,7 +294,6 @@ class PORMADecHighLevelGameCfgPPO( BaseConfig ):
     class runner:
         policy_class_name = 'ActorCriticGamesRMA'
         algorithm_class_name = 'PPO'
-        robot_policy_type = None # Repeated, but what can you do
         num_steps_per_env = 10 #24          # per iteration
         max_iterations = 1601           # number of policy updates per agent
         max_evolutions = 1            # number of times the two agents alternate policy updates (e.g., if 100, then each agent gets to be updated 50 times)
