@@ -16,7 +16,7 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         num_robot_states = 4            # x = (px, py, pz, theta)
         num_agent_states = 3            # x = (px, py, pz)
         num_pred_steps = 8              # prediction length
-        num_hist_steps = 15              # history length
+        num_hist_steps = 8 #15              # history length
 
         # interaction scenario options:
         #       'nav' if doing goal-reaching w/agent avoidance
@@ -49,7 +49,8 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         # num_privileged_obs_robot = None
         # num_privileged_obs_agent = None
 
-        # PREDICTION - PHASE 2
+        # # PREDICTION - PHASE 2
+        # num_observations_robot = num_agent_states * (num_hist_steps + 1)
         num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
         num_observations_agent = 4
         num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
@@ -90,14 +91,17 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         #       'simple_weaving' it follows dubins' curves
         #       'complex_weaving' it follows random linear and angular velocity combinations
         #       'static' just stands still
-        agent_policy_type = 'complex_weaving'
-        agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
-        agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
+        agent_policy_type = 'simple_weaving'
+        agent_ang = [0,0] #[-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
+        agent_rad = [2.0,2.0] #[2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
 
         # [Pursuit-Evasion Game] for 'simple_weaving' agent policy only
-        agent_turn_freq = [50, 100]                   # sample how long to turn (tsteps) from [min, max]
-        agent_straight_freq = [100, 200]              # sample how long to keep straight (tsteps) from [min, max]
-        randomize_init_turn_dir = True                # if True, then initial turn going left or right is randomized
+        agent_turn_freq = [50, 100]  # sample how long to turn (tsteps) from [min, max]
+        agent_straight_freq = [100, 200]  # sample how long to keep straight (tsteps) from [min, max]
+        randomize_init_turn_dir = False  # if True, then initial turn going left or right is randomized
+        # agent_turn_freq = [50, 100]                   # sample how long to turn (tsteps) from [min, max]
+        # agent_straight_freq = [100, 200]              # sample how long to keep straight (tsteps) from [min, max]
+        # randomize_init_turn_dir = True                # if True, then initial turn going left or right is randomized
 
         # [Navigation] for goal initialization
         goal_ang = [-3.14, 3.14]        # goal location specs: [min, max] relative angle to robot
@@ -290,9 +294,10 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
 
         future_len = 8
-        history_len = 15
+        history_len = 8
         num_robot_states = 4
         num_robot_actions = 3
+        num_agent_states = 3
         num_latent = 8          # i.e., embedding sz
 
         # ===== [Pursuit-Evasion Game] ===== #
@@ -302,8 +307,9 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
 
         # # PREDICTION PHASE 1 or PHASE 2
         num_privilege_obs_RMA = num_robot_states * future_len  # i.e., 8-step future relative state
-        # num_privilege_obs_estimator = num_robot_states*2 + num_robot_actions
+        # num_privilege_obs_estimator = num_agent_states * (history_len + 1)
         num_privilege_obs_estimator = num_robot_states * (history_len + 1) + num_robot_actions * history_len    # i.e., 8-step past rel-state and robot controls + present state
+        # num_privilege_obs_estimator = num_robot_states*2 + num_robot_actions
 
         #  ===== [Navigation] ===== #
         # num_privilege_obs_RMA = num_robot_states * future_len # only the 8-step future relative state is privileged (current state and goal is not)
