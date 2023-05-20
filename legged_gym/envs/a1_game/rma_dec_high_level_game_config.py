@@ -10,7 +10,9 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         debug_viz = False
         robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
 
-        num_envs = 20 # 4096
+        num_envs = 3000 # 4096
+
+        num_priv_robot_states = None    # ONLY FOR PO: x = (px, py, pz, theta)
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
         num_robot_states = 4            # x = (px, py, pz, theta)
@@ -28,9 +30,8 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         #       'estimation' uses history of relative state and robot actions
         #       'prediction_phase1' uses privileged info about future relative state
         #       'prediction_phase2' uses history of relative state and robot actions with privileged future predictions
-        robot_policy_type = 'prediction_phase2'
-        
-        
+        robot_policy_type = 'reaction'
+
         # ====== [Pursuit-Evasion Game] ====== #
         # BASELINE - REACTION
         if robot_policy_type == 'reaction':
@@ -100,14 +101,14 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         #       'simple_weaving' it follows dubins' curves
         #       'complex_weaving' it follows random linear and angular velocity combinations
         #       'static' just stands still
-        agent_policy_type = 'simple_weaving'
-        agent_ang = [0,0] #[-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
-        agent_rad = [2.0,2.0] #[2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
+        agent_policy_type = 'complex_weaving'
+        agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
+        agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
 
         # [Pursuit-Evasion Game] for 'simple_weaving' agent policy only
         agent_turn_freq = [50, 100]  # sample how long to turn (tsteps) from [min, max]
         agent_straight_freq = [100, 200]  # sample how long to keep straight (tsteps) from [min, max]
-        randomize_init_turn_dir = False  # if True, then initial turn going left or right is randomized
+        randomize_init_turn_dir = True  # if True, then initial turn going left or right is randomized
         # agent_turn_freq = [50, 100]                   # sample how long to turn (tsteps) from [min, max]
         # agent_straight_freq = [100, 200]              # sample how long to keep straight (tsteps) from [min, max]
         # randomize_init_turn_dir = True                # if True, then initial turn going left or right is randomized
@@ -292,25 +293,30 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
     runner_class_name = 'DecGamePolicyRunner' # 'OnPolicyRunner'
 
     class policy:
-        #robot_policy_type = 'prediction_phase1'
-        robot_policy_type = 'prediction_phase2'
+        # robot policy type options:
+        #       'reaction' uses only current relative state
+        #       'estimation' uses history of relative state and robot actions
+        #       'prediction_phase1' uses privileged info about future relative state
+        #       'prediction_phase2' uses history of relative state and robot actions with privileged future predictions
+        robot_policy_type = 'reaction'
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
+        privilege_enc_hidden_dims = [512, 256, 128]  # i.e. encoder_hidden_dims
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
-        RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
+        eval_time = False
 
         # ActorCriticGamesRMA: information about the estimator(s)
         if robot_policy_type == 'estimation' or robot_policy_type == 'prediction_phase1':
-            estimator = False   # True uses the learned estimator: zhat = E(x^history, uR^history)
-            RMA = True         # True uses the teacher estimator: z* = T(x^future)
-            init_noise_std = 0.5 #0.01 #1.0
+            use_estimator = False   # True uses the learned estimator: zhat = E(x^history, uR^history)
+            use_privilege_enc = True         # True uses the teacher estimator: z* = T(x^future)
+            init_noise_std = 0.5
         elif robot_policy_type == 'prediction_phase2' or robot_policy_type == 'po_prediction_phase2':
-            estimator = True   # True uses the learned estimator: zhat = E(x^history, uR^history)
-            RMA = True         # True uses the teacher estimator: z* = T(x^future)
-            init_noise_std = 0.01 #0.01 #1.0
+            use_estimator = True   # True uses the learned estimator: zhat = E(x^history, uR^history)
+            use_privilege_enc = True         # True uses the teacher estimator: z* = T(x^future)
+            init_noise_std = 0.01
         else:
-            estimator = False   # True uses the learned estimator: zhat = E(x^history, uR^history)
-            RMA = False         # True uses the teacher estimator: z* = T(x^future)
+            use_estimator = False   # True uses the learned estimator: zhat = E(x^history, uR^history)
+            use_privilege_enc = False         # True uses the teacher estimator: z* = T(x^future)
             init_noise_std = 0.5 
 
         future_len = 8
@@ -322,16 +328,18 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
 
         # ===== [Pursuit-Evasion Game] ===== #
         if robot_policy_type == 'estimation':
-            num_privilege_obs_RMA = num_robot_states*(history_len+1) + num_robot_actions*history_len  # i.e., 8-step future relative state
-            num_privilege_obs_estimator = None
-        elif robot_policy_type == 'prediction_phase1' or robot_policy_type == 'prediction_phase2':
-            num_privilege_obs_RMA = num_robot_states * future_len  # i.e., 8-step future relative state
-            # num_privilege_obs_estimator = num_robot_states*2 + num_robot_actions
-            num_privilege_obs_estimator = num_robot_states * (history_len + 1) + num_robot_actions * history_len    # i.e., 8-step past rel-state and robot controls + present state
+            num_privilege_enc_obs = num_robot_states*(history_len+1) + num_robot_actions*history_len  # i.e., 8-step future relative state
+            num_estimator_obs = None
+        elif robot_policy_type == 'prediction_phase1':
+            num_privilege_enc_obs = num_robot_states * future_len  # i.e., 8-step future relative state
+            num_estimator_obs = None
+        elif robot_policy_type == 'prediction_phase2':
+            num_privilege_enc_obs = num_robot_states * future_len  # i.e., 8-step future relative state
+            num_estimator_obs = num_robot_states * (history_len + 1) + num_robot_actions * history_len    # i.e., 8-step past rel-state and robot controls + present state
 
         #  ===== [Navigation] ===== #
-        # num_privilege_obs_RMA = num_robot_states * future_len # only the 8-step future relative state is privileged (current state and goal is not)
-        # num_privilege_obs_estimator = num_robot_states * (history_len + 1) + num_robot_actions * history_len # the estimator treats only the 8-step past rel-state and robot controls + present state as privileged # TODO: FIX THIS IN ACTOR CRITIC RMA
+        # num_privilege_enc_obs = num_robot_states * future_len # only the 8-step future relative state is privileged (current state and goal is not)
+        # num_estimator_obs = num_robot_states * (history_len + 1) + num_robot_actions * history_len # the estimator treats only the 8-step past rel-state and robot controls + present state as privileged # TODO: FIX THIS IN ACTOR CRITIC RMA
 
     class algorithm:
         # training params
@@ -350,7 +358,6 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         max_grad_norm = 1.
 
     class runner:
-        #policy_class_name = 'ActorCritic'
         policy_class_name = 'ActorCriticGamesRMA'
         algorithm_class_name = 'PPO'
         eval_time = False
@@ -362,9 +369,9 @@ class RMADecHighLevelGameCfgPPO( BaseConfig ):
         save_learn_interval = 200  # check for potential saves every this many iterations
         save_evol_interval = 1
         # load and resume
-        resume_robot = False
+        resume_robot = True
         resume_agent = False
-        load_run = 'phase_1_policy_v2' #nav_phase_1_policy' #'phase_1_policy'  # -1 = last run
+        load_run = 'phase_1_policy_v3' #nav_phase_1_policy' #'phase_1_policy'  # -1 = last run
         evol_checkpoint_robot = 0       
         learn_checkpoint_robot = 1600   # -1 = last saved model
         evol_checkpoint_agent = 0

@@ -54,7 +54,7 @@ def play_rma_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 1
+    max_num_envs = 2
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = False
     env_cfg.commands.use_joypad = False
@@ -68,20 +68,27 @@ def play_rma_game(args):
     obs_robot = env.get_observations_robot()
 
     # load policies of agent and robot
-    logging = False
     evol_checkpoint = 0
-    learn_checkpoint = 200
+    learn_checkpoint = 1600
     train_cfg.runner.resume_robot = True # only load robot
     train_cfg.runner.resume_agent = False
 
-    train_cfg.policy.estimator = True
-    train_cfg.policy.RMA = False
+    # if True, computes stats for one episode: episode length and reward
+    logging = True
+
+    # setup what modules the policy is using
+    train_cfg.policy.use_estimator = True
+    train_cfg.policy.use_privilege_enc = False
     train_cfg.policy.eval_time = True
 
     # train_cfg.runner.load_run = 'phase_2_policy_v3'
     # train_cfg.runner.load_run = 'ph2_lstm1_fullHist_simpleWeave'
-    train_cfg.runner.load_run = 'phase_2_policy_v3'
+    # train_cfg.runner.load_run = 'phase_2_policy_v3'
     #train_cfg.runner.load_run = 'May17_07-44-28_'
+
+    # train_cfg.runner.load_run = 'p2_simpleWeave_fixedInit_lstm'
+    train_cfg.runner.load_run = 'p2_simpleWeave_randEverything_lstm'
+    # train_cfg.runner.load_run = 'p2_complexWeave_lstm'
 
     train_cfg.runner.learn_checkpoint_robot = learn_checkpoint # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
     train_cfg.runner.evol_checkpoint_robot = evol_checkpoint  # TODO: WITHOUT THIS IT GRABS WRONG CHECKPOINT
@@ -119,16 +126,17 @@ def play_rma_game(args):
                      policy.actor_critic.estimator.hidden_size), device=env.device, requires_grad=True)
     hidden_state = (h, c)
     mask = torch.ones((env.num_envs,), device=env.device)
-    
 
-    # for i in range(10 * int(env.max_episode_length)):
-    for i in range(10 * int(env.max_episode_length)):
+    coeff = 10
+    if logging:
+        coeff = 1
+
+    for i in range(coeff * int(env.max_episode_length)):
         if logging:
             print("Iter ", i, "  /  ", int(env.max_episode_length))
         
         hidden_state = (torch.einsum("ijk,j->ijk", hidden_state[0], mask),
                         torch.einsum("ijk,j->ijk", hidden_state[1], mask))    
-
 
         # get the estimator latent
         estimator_obs = obs_robot.clone().unsqueeze(0)
@@ -148,7 +156,6 @@ def play_rma_game(args):
         
         # mask out finished envs
         mask = ~dones
-
 
         if RECORD_FRAMES:
             if i % 2:

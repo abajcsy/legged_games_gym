@@ -53,7 +53,7 @@ def play_dec_game(args):
     env_cfg, train_cfg = task_registry.get_cfgs(name=args.task)
 
     # override some parameters for testing
-    max_num_envs = 2
+    max_num_envs = 1000
     env_cfg.env.num_envs = min(env_cfg.env.num_envs, max_num_envs)
     env_cfg.env.debug_viz = True
     env_cfg.commands.use_joypad = False
@@ -66,9 +66,8 @@ def play_dec_game(args):
     obs_robot = env.get_observations_robot()
 
     # load policies of agent and robot
-    logging = False
     evol_checkpoint = 0
-    learn_checkpoint = 1000
+    learn_checkpoint = 1600
     train_cfg.runner.resume_robot = True
     train_cfg.runner.resume_agent = False
 
@@ -79,18 +78,20 @@ def play_dec_game(args):
     # train_cfg.runner.load_run = 'Apr22_13-54-32_' # KF, ZED FOV w/ curriculum, w/ covariance, cmd clip
     # train_cfg.runner.load_run = 'Apr22_15-35-56_' # local rel pos, ZED FOV
     # train_cfg.runner.load_run = 'Apr21_17-39-32_' # local rel pos, FULL FOV
-
     #train_cfg.runner.load_run = 'Apr23_09-40-25_' # WORKING POLICY with BC
     #train_cfg.runner.load_run = 'Apr26_18-08-49_' # policy with -||u||^2
     #train_cfg.runner.load_run = 'Apr28_09-17-01_' # policy with (xrel, upred^t:t:10)
     # train_cfg.runner.load_run = 'Apr30_18-18-17_' # policy with slower HL policy frequency
-
     # train_cfg.runner.load_run = 'May13_06-36-55_' #'May12_23-37-32_'
-
     # train_cfg.runner.load_run = 'nav_phase_1_policy' # navigation example
 
-    train_cfg.policy.estimator = False
-    train_cfg.policy.RMA = True
+    # if True, computes stats for one episode: episode length and reward
+    logging = True
+
+    # setup what modules the policy is using
+    train_cfg.policy.use_estimator = False
+    train_cfg.policy.use_privilege_enc = False
+    train_cfg.policy.eval_time = True
 
     train_cfg.runner.load_run = 'reactive_policy'
     # train_cfg.runner.load_run = 'estimation_policy'
@@ -121,9 +122,12 @@ def play_dec_game(args):
     cur_reward_sum_robot = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
     cur_episode_length = torch.zeros(env.num_envs, dtype=torch.float, device=env.device)
 
+    coeff = 10
+    if logging:
+        coeff = 1
+
     # simulate an episode
-    # for i in range(10 * int(env.max_episode_length)):
-    for i in range(int(env.max_episode_length)):
+    for i in range(coeff * int(env.max_episode_length)):
         if logging:
             print("Iter ", i, "  /  ", int(env.max_episode_length))
 
