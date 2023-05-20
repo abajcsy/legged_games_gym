@@ -3,18 +3,14 @@ from legged_gym.envs.base.base_config import BaseConfig
 
 class RMADecHighLevelGameCfg( BaseConfig ):
     class env:
-        # note:
-        #   48 observations for nominal A1 setup
-        #   + 187 for non-flat terrain observations
-        #   + 3 for relative xyz-state to point-agent
         debug_viz = False
         robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
 
         num_envs = 3000 # 4096
 
-        num_priv_robot_states = None    # ONLY FOR PO: x = (px, py, pz, theta)
         num_actions_robot = 3           # robot (lin_vel_x, lin_vel_y, ang_vel_yaw) = 3
         num_actions_agent = 2           # other agent (lin_vel, ang_vel) = 2
+        num_priv_robot_states = None    # ONLY FOR PO: (xhat, cov_diag) = 8
         num_robot_states = 4            # x = (px, py, pz, theta)
         num_agent_states = 3            # x = (px, py, pz)
         num_pred_steps = 8              # prediction length
@@ -33,53 +29,60 @@ class RMADecHighLevelGameCfg( BaseConfig ):
         robot_policy_type = 'reaction'
 
         # ====== [Pursuit-Evasion Game] ====== #
-        # BASELINE - REACTION
-        if robot_policy_type == 'reaction':
-            num_observations_robot = num_robot_states
-            num_observations_agent = 4
-            num_privileged_obs_robot = None
-            num_privileged_obs_agent = None
-        # BASELINE - ESTIMATION
-        elif robot_policy_type == 'estimation':
-            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps
-            num_observations_agent = 4
-            num_privileged_obs_robot = None
-            num_privileged_obs_agent = None
-        # PREDICTION - PHASE 1
-        elif robot_policy_type == 'prediction_phase1':
-            num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-            num_observations_agent = 4
-            num_privileged_obs_robot = None
-            num_privileged_obs_agent = None
-        # PREDICTION - PHASE 2
-        elif robot_policy_type == 'prediction_phase2':
-            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-            num_observations_agent = 4
-            num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-            num_privileged_obs_agent = None
-        # PARTIAL OBSERVABILITY PREDICTION - PHASE 2
-        elif robot_policy_type == 'po_prediction_phase2':
-            num_observations_priv_robot = num_priv_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-            num_observations_priv_agent = 4
-            num_privileged_obs_priv_robot = num_priv_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-            num_privileged_obs_agent = None
-            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-            num_observations_agent = 8
-            num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        if interaction_type == 'game':
+            # BASELINE - REACTION
+            if robot_policy_type == 'reaction':
+                num_observations_robot = num_robot_states
+                num_observations_agent = 4
+                num_privileged_obs_robot = None
+                num_privileged_obs_agent = None
+            # BASELINE - ESTIMATION
+            elif robot_policy_type == 'estimation':
+                num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps
+                num_observations_agent = 4
+                num_privileged_obs_robot = None
+                num_privileged_obs_agent = None
+            # PREDICTION - PHASE 1
+            elif robot_policy_type == 'prediction_phase1':
+                num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+                num_observations_agent = 4
+                num_privileged_obs_robot = None
+                num_privileged_obs_agent = None
+            # PREDICTION - PHASE 2
+            elif robot_policy_type == 'prediction_phase2':
+                num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+                num_observations_agent = 4
+                num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+                num_privileged_obs_agent = None
+            # PARTIAL OBSERVABILITY PREDICTION - PHASE 2
+            elif robot_policy_type == 'po_prediction_phase2':
+                # Used for the partially-observable STUDENT
+                num_observations_priv_robot = num_priv_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+                num_observations_priv_agent = 4
+                num_privileged_obs_priv_robot = num_priv_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+
+                # Used for the fully-observable TEACHER
+                num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+                num_observations_agent = 8
+                num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+                num_privileged_obs_agent = None
+        # =========== END ========== #
 
         # ====== [Navigation] ====== #
-        # PHASE 1 INFO
-        # num_observations_robot = num_robot_states * (num_pred_steps + 1) + 3       # PREDICTIONS + GOAL: pi(goal_xyth, x^t, x^t+1:t+N)
-        # num_observations_agent = 4
-        # num_privileged_obs_robot = None
-        # num_privileged_obs_agent = None
-
-        # PHASE 2 INFO
-        # num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps + 3 # HISTORY: pi(goal_xyth, x^t, x^t-N:t, uR^t-N:t-1)
-        # num_observations_agent = 4
-        # num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1) + 3       # PREDICTIONS: pi(goal_xyth, x^t, x^t+1:t+N)
-        # num_privileged_obs_agent = None
-        # ========================== #
+        if interaction_type == 'nav':
+            if robot_policy_type == 'prediction_phase1':
+                # PHASE 1 INFO
+                num_observations_robot = num_robot_states * (num_pred_steps + 1) + 3       # PREDICTIONS + GOAL: pi(goal_xyth, x^t, x^t+1:t+N)
+                num_observations_agent = 4
+                num_privileged_obs_robot = None
+                num_privileged_obs_agent = None
+            elif robot_policy_type == 'prediction_phase2':
+                # PHASE 2 INFO
+                num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps + 3 # HISTORY: pi(goal_xyth, x^t, x^t-N:t, uR^t-N:t-1)
+                num_observations_agent = 4
+                num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1) + 3       # PREDICTIONS: pi(goal_xyth, x^t, x^t+1:t+N)
+                num_privileged_obs_agent = None
+        # =========== END ========== #
 
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm

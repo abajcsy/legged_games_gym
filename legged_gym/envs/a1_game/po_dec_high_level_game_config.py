@@ -3,10 +3,6 @@ from legged_gym.envs.base.base_config import BaseConfig
 
 class PORMADecHighLevelGameCfg( BaseConfig ):
     class env:
-        # note:
-        #   48 observations for nominal A1 setup
-        #   + 187 for non-flat terrain observations
-        #   + 3 for relative xyz-state to point-agent
         debug_viz = False
         robot_hl_dt = 0.2   # 1 / robot_hl_dt is the Hz
         num_envs = 20 # 4096
@@ -19,7 +15,6 @@ class PORMADecHighLevelGameCfg( BaseConfig ):
         num_pred_steps = 8              # prediction length
         num_hist_steps = 8              # history length
 
-        
         # interaction scenario options:
         #       'nav' if doing goal-reaching w/agent avoidance
         #       'game' pursuit-evasion interaction
@@ -32,63 +27,67 @@ class PORMADecHighLevelGameCfg( BaseConfig ):
         #       'prediction_phase2' uses history of relative state and robot actions with privileged future predictions
         robot_policy_type = 'po_prediction_phase2'
         
-        
         # ====== [Pursuit-Evasion Game] ====== #
-        # BASELINE - REACTION
-        if robot_policy_type == 'reaction':
-            num_observations_robot = num_robot_states
-            num_observations_agent = 4
-            num_privileged_obs_robot = None
-            num_privileged_obs_agent = None
-        # BASELINE - ESTIMATION
-        elif robot_policy_type == 'estimation':
-            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps
-            num_observations_agent = 4
-            num_privileged_obs_robot = None
-            num_privileged_obs_agent = None
-        # PREDICTION - PHASE 1
-        elif robot_policy_type == 'prediction_phase1':
-            num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-            num_observations_agent = 4
-            num_privileged_obs_robot = None
-            num_privileged_obs_agent = None
-        # PREDICTION - PHASE 2
-        elif robot_policy_type == 'prediction_phase2':
-            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-            num_observations_agent = 4
-            num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-            num_privileged_obs_agent = None
-        # PARTIAL OBSERVABILITY PREDICTION - PHASE 2
-        elif robot_policy_type == 'po_prediction_phase2':
-            num_observations_priv_robot = num_priv_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-            num_observations_priv_agent = 4
-            num_privileged_obs_priv_robot = num_priv_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
-            num_privileged_obs_agent = None
-            num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
-            num_observations_agent = 8
-            num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        if interaction_type == 'game':
+            # BASELINE - REACTION
+            if robot_policy_type == 'reaction':
+                num_observations_robot = num_robot_states
+                num_observations_agent = 4
+                num_privileged_obs_robot = None
+                num_privileged_obs_agent = None
+            # BASELINE - ESTIMATION
+            elif robot_policy_type == 'estimation':
+                num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps
+                num_observations_agent = 4
+                num_privileged_obs_robot = None
+                num_privileged_obs_agent = None
+            # PREDICTION - PHASE 1
+            elif robot_policy_type == 'prediction_phase1':
+                num_observations_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+                num_observations_agent = 4
+                num_privileged_obs_robot = None
+                num_privileged_obs_agent = None
+            # PREDICTION - PHASE 2
+            elif robot_policy_type == 'prediction_phase2':
+                num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+                num_observations_agent = 4
+                num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+                num_privileged_obs_agent = None
+            # PARTIAL OBSERVABILITY PREDICTION - PHASE 2
+            elif robot_policy_type == 'po_prediction_phase2':
+                num_observations_priv_robot = num_priv_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+                num_observations_priv_agent = 4
+                num_privileged_obs_priv_robot = num_priv_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+                num_privileged_obs_agent = None
+                num_observations_robot = num_robot_states * (num_hist_steps + 1) + num_actions_robot * num_hist_steps # HISTORY: pi(x^t, x^t-N:t, uR^t-N:t-1)
+                num_observations_agent = 8
+                num_privileged_obs_robot = num_robot_states * (num_pred_steps + 1)        # PREDICTIONS: pi(x^t, x^t+1:t+N)
+        # =========== END ========== #
 
         env_spacing = 3.            # not used with heightfields / trimeshes
         send_timeouts = False       # send time out information to the algorithm
         send_BC_actions = True      # send optimal robot actions for the BC loss in the algorithm; TODO: need to clean up this var
         episode_length_s = 20       # episode length in seconds
         capture_dist = 0.8          # if the two agents are closer than this dist, they are captured
-        
+
+        # simulated agent info
+        # options for agent's dynamics:
+        #       'dubins' (u = linvel, angvel)
+        #       'integrator' (u = xvel, yvel)
+        agent_dyn_type = 'dubins'
+
         # options for agent policy type:
         #       'simple_weaving' it follows dubins' curves
         #       'complex_weaving' it follows random linear and angular velocity combinations
         #       'static' just stands still
         agent_policy_type = 'complex_weaving'
-
-        # simulated agent info
-        agent_dyn_type = "dubins"   # options for agent's dynamics: "dubins" (u = linvel, angvel) or "integrator" (u = xvel, yvel)
         agent_ang = [-3.14, 3.14]       # initial condition: [min, max] relative angle to robot
         agent_rad = [2.0, 6.0]          # initial condition: [min, max] spawn radius away from robot
 
-        # for NAIEVE WEAVING agent policy only
-        agent_turn_freq = [50, 100]                   # sample how long to turn (tsteps) from [min, max]
-        agent_straight_freq = [100, 200]              # sample how long to keep straight (tsteps) from [min, max]
-        randomize_init_turn_dir = True #False # True                           # if True, then initial turn going left or right is randomized
+        # [Pursuit-Evasion Game] for 'simple_weaving' agent policy only
+        agent_turn_freq = [50, 100]  # sample how long to turn (tsteps) from [min, max]
+        agent_straight_freq = [100, 200]  # sample how long to keep straight (tsteps) from [min, max]
+        randomize_init_turn_dir = True  # if True, then initial turn going left or right is randomized
 
     class robot_sensing:
         filter_type = "kf" # options: "ukf" or "kf"
@@ -260,19 +259,26 @@ class PORMADecHighLevelGameCfgPPO( BaseConfig ):
     runner_class_name = 'DecGamePolicyRunner' # 'OnPolicyRunner'
 
     class policy:
-        init_noise_std = 0.01 #0.5 #1.0
+        # robot policy type options:
+        #       'reaction' uses only current relative state
+        #       'estimation' uses history of relative state and robot actions
+        #       'prediction_phase1' uses privileged info about future relative state
+        #       'prediction_phase2' uses history of relative state and robot actions with privileged future predictions
+        #       'po_prediction_phase2' uses the kalman filter states
+        robot_policy_type = 'po_prediction_phase2'
         actor_hidden_dims = [512, 256, 128]
         critic_hidden_dims = [512, 256, 128]
+        privilege_enc_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
         activation = 'elu'  # can be elu, relu, selu, crelu, lrelu, tanh, sigmoid
-        robot_policy_type = 'po_prediction_phase2'
         eval_time = False
 
         # ActorCriticGamesRMA: information about the estimator(s)
-        estimator = True   # True uses the learned estimator: zhat = E(x^history, uR^history)
-        RMA = True         # True uses the teacher estimator: z* = T(x^future)
-        RMA_hidden_dims = [512, 256, 128] # i.e. encoder_hidden_dims
-        num_privilege_obs_RMA = 4*8   # i.e., 8-step future relative state
-        num_privilege_obs_estimator = 8*(8+1) + 3*8    # i.e., 8-step past rel-state and present state + robot controls history
+        use_estimator = True   # True uses the learned estimator: zhat = E(x^history, uR^history)
+        use_privilege_enc = True         # True uses the teacher estimator: z* = T(x^future)
+        init_noise_std = 0.01 #0.5 #1.0
+
+        num_privilege_enc_obs = 4*8   # i.e., 8-step future relative state
+        num_estimator_obs = 8*(8+1) + 3*8    # i.e., 8-step past rel-state and present state + robot controls history
         num_latent = 8          # i.e., embedding sz
 
     class algorithm:
